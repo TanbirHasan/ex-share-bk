@@ -1,11 +1,19 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, getTableColumns, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { categories } from "../../db/schema";
+import { categories, products } from "../../db/schema";
 import { conflict, notFound } from "../../lib/errors";
 import type { CreateCategoryInput, UpdateCategoryInput } from "./categories.schema";
 
 export async function listCategories(db: DB) {
-  return db.select().from(categories).orderBy(asc(categories.nameEn));
+  return db
+    .select({
+      ...getTableColumns(categories),
+      productCount: sql<number>`count(${products.id})::int`,
+    })
+    .from(categories)
+    .leftJoin(products, eq(products.categoryId, categories.id))
+    .groupBy(categories.id)
+    .orderBy(asc(categories.nameEn));
 }
 
 export async function getCategory(db: DB, id: string) {

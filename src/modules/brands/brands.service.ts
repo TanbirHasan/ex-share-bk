@@ -1,11 +1,19 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, getTableColumns, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { brands } from "../../db/schema";
+import { brands, products } from "../../db/schema";
 import { conflict, notFound } from "../../lib/errors";
 import type { CreateBrandInput, UpdateBrandInput } from "./brands.schema";
 
 export async function listBrands(db: DB) {
-  return db.select().from(brands).orderBy(asc(brands.name));
+  return db
+    .select({
+      ...getTableColumns(brands),
+      productCount: sql<number>`count(${products.id})::int`,
+    })
+    .from(brands)
+    .leftJoin(products, eq(products.brandId, brands.id))
+    .groupBy(brands.id)
+    .orderBy(asc(brands.name));
 }
 
 export async function getBrand(db: DB, id: string) {

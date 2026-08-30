@@ -15,11 +15,26 @@ export const productImageOut = z.object({
   sort: z.number().int(),
 });
 
+export const productCategoryRef = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  nameEn: z.string(),
+  nameBn: z.string(),
+});
+
+export const productBrandRef = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  name: z.string(),
+});
+
 export const productOut = z.object({
   id: z.string().uuid(),
   slug: z.string(),
   categoryId: z.string().uuid(),
   brandId: z.string().uuid(),
+  category: productCategoryRef,
+  brand: productBrandRef,
   name: z.string(),
   modelNo: z.string().nullable(),
   status: productStatusEnum,

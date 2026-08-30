@@ -14,6 +14,7 @@ export const brandOut = z.object({
   aboutEn: z.string().nullable(),
   aboutBn: z.string().nullable(),
   createdAt: z.date(),
+  productCount: z.number().int().optional(),
 });
 
 export const createBrandBody = z.object({

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { brands, categories, productImages, products } from "../../db/schema";
 import { badRequest, conflict, notFound } from "../../lib/errors";
@@ -9,9 +9,36 @@ import type {
   UpdateProductInput,
 } from "./products.schema";
 
-/** Map a raw product row to the API shape (numeric column -> number). */
-function toOut(row: typeof products.$inferSelect) {
-  return { ...row, ratingAvg: Number(row.ratingAvg) };
+const categoryRef = {
+  id: categories.id,
+  slug: categories.slug,
+  nameEn: categories.nameEn,
+  nameBn: categories.nameBn,
+};
+const brandRef = { id: brands.id, slug: brands.slug, name: brands.name };
+
+type JoinedRow = {
+  product: typeof products.$inferSelect;
+  category: { id: string; slug: string; nameEn: string; nameBn: string };
+  brand: { id: string; slug: string; name: string };
+};
+
+/** Map a joined row to the API shape (numeric column -> number, nested refs). */
+function toOut(row: JoinedRow) {
+  return {
+    ...row.product,
+    ratingAvg: Number(row.product.ratingAvg),
+    category: row.category,
+    brand: row.brand,
+  };
+}
+
+function selectJoined(db: DB) {
+  return db
+    .select({ product: getTableColumns(products), category: categoryRef, brand: brandRef })
+    .from(products)
+    .innerJoin(categories, eq(products.categoryId, categories.id))
+    .innerJoin(brands, eq(products.brandId, brands.id));
 }
 
 async function assertRefsExist(db: DB, categoryId?: string, brandId?: string) {
@@ -63,9 +90,7 @@ export async function listProducts(db: DB, query: ListProductsQuery) {
   const page: PageParams = { limit: query.limit, offset: query.offset };
 
   const [rows, [countRow]] = await Promise.all([
-    db
-      .select()
-      .from(products)
+    selectJoined(db)
       .where(where)
       .orderBy(desc(products.createdAt))
       .limit(page.limit)
@@ -80,14 +105,14 @@ export async function listProducts(db: DB, query: ListProductsQuery) {
 }
 
 export async function getProduct(db: DB, id: string) {
-  const [product] = await db.select().from(products).where(eq(products.id, id)).limit(1);
-  if (!product) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+  const [row] = await selectJoined(db).where(eq(products.id, id)).limit(1);
+  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
   const images = await db
     .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
     .from(productImages)
     .where(eq(productImages.productId, id))
     .orderBy(asc(productImages.sort), asc(productImages.createdAt));
-  return { ...toOut(product), images };
+  return { ...toOut(row), images };
 }
 
 export async function createProduct(db: DB, input: CreateProductInput) {
@@ -96,8 +121,8 @@ export async function createProduct(db: DB, input: CreateProductInput) {
   const [row] = await db
     .insert(products)
     .values({ ...input, spec: input.spec ?? {} })
-    .returning();
-  return { ...toOut(row!), images: [] as { id: string; url: string; sort: number }[] };
+    .returning({ id: products.id });
+  return getProduct(db, row!.id);
 }
 
 export async function updateProduct(db: DB, id: string, input: UpdateProductInput) {

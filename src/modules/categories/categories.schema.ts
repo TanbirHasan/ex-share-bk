@@ -14,6 +14,7 @@ export const categoryOut = z.object({
   icon: z.string().nullable(),
   parentId: z.string().uuid().nullable(),
   createdAt: z.date(),
+  productCount: z.number().int().optional(),
 });
 export type CategoryOut = z.infer<typeof categoryOut>;
 
