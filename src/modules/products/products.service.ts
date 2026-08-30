@@ -1,0 +1,176 @@
+import { and, asc, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import type { DB } from "../../db/client";
+import { brands, categories, productImages, products } from "../../db/schema";
+import { badRequest, conflict, notFound } from "../../lib/errors";
+import { paginated, type PageParams } from "../../lib/pagination";
+import type {
+  CreateProductInput,
+  ListProductsQuery,
+  UpdateProductInput,
+} from "./products.schema";
+
+/** Map a raw product row to the API shape (numeric column -> number). */
+function toOut(row: typeof products.$inferSelect) {
+  return { ...row, ratingAvg: Number(row.ratingAvg) };
+}
+
+async function assertRefsExist(db: DB, categoryId?: string, brandId?: string) {
+  if (categoryId) {
+    const [c] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.id, categoryId))
+      .limit(1);
+    if (!c) throw badRequest("CATEGORY_NOT_FOUND", "categoryId does not exist");
+  }
+  if (brandId) {
+    const [b] = await db
+      .select({ id: brands.id })
+      .from(brands)
+      .where(eq(brands.id, brandId))
+      .limit(1);
+    if (!b) throw badRequest("BRAND_NOT_FOUND", "brandId does not exist");
+  }
+}
+
+async function assertSlugFree(db: DB, slug: string, exceptId?: string) {
+  const [dup] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.slug, slug))
+    .limit(1);
+  if (dup && dup.id !== exceptId) {
+    throw conflict("PRODUCT_SLUG_TAKEN", `Slug "${slug}" is already in use`);
+  }
+}
+
+export async function listProducts(db: DB, query: ListProductsQuery) {
+  const filters: SQL[] = [];
+  if (query.categoryId) filters.push(eq(products.categoryId, query.categoryId));
+  if (query.brandId) filters.push(eq(products.brandId, query.brandId));
+  if (query.status) filters.push(eq(products.status, query.status));
+  if (query.q) {
+    const like = `%${query.q}%`;
+    filters.push(
+      or(
+        ilike(products.name, like),
+        ilike(products.modelNo, like),
+        ilike(products.slug, like),
+      )!,
+    );
+  }
+  const where = filters.length ? and(...filters) : undefined;
+  const page: PageParams = { limit: query.limit, offset: query.offset };
+
+  const [rows, [countRow]] = await Promise.all([
+    db
+      .select()
+      .from(products)
+      .where(where)
+      .orderBy(desc(products.createdAt))
+      .limit(page.limit)
+      .offset(page.offset),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(products)
+      .where(where),
+  ]);
+
+  return paginated(rows.map(toOut), countRow?.count ?? 0, page);
+}
+
+export async function getProduct(db: DB, id: string) {
+  const [product] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+  if (!product) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+  const images = await db
+    .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
+    .from(productImages)
+    .where(eq(productImages.productId, id))
+    .orderBy(asc(productImages.sort), asc(productImages.createdAt));
+  return { ...toOut(product), images };
+}
+
+export async function createProduct(db: DB, input: CreateProductInput) {
+  await assertRefsExist(db, input.categoryId, input.brandId);
+  await assertSlugFree(db, input.slug);
+  const [row] = await db
+    .insert(products)
+    .values({ ...input, spec: input.spec ?? {} })
+    .returning();
+  return { ...toOut(row!), images: [] as { id: string; url: string; sort: number }[] };
+}
+
+export async function updateProduct(db: DB, id: string, input: UpdateProductInput) {
+  if (Object.keys(input).length === 0) return getProduct(db, id);
+  await assertRefsExist(db, input.categoryId, input.brandId);
+  if (input.slug) await assertSlugFree(db, input.slug, id);
+
+  const [row] = await db
+    .update(products)
+    .set({ ...input, updatedAt: new Date() })
+    .where(eq(products.id, id))
+    .returning();
+  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+  return getProduct(db, id);
+}
+
+export async function deleteProduct(db: DB, id: string) {
+  const [row] = await db
+    .delete(products)
+    .where(eq(products.id, id))
+    .returning({ id: products.id });
+  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+}
+
+export async function addProductImage(
+  db: DB,
+  productId: string,
+  input: { url: string; sort?: number },
+) {
+  const [product] = await db
+    .select({ id: products.id, primaryImage: products.primaryImage })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+  if (!product) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+
+  const [image] = await db
+    .insert(productImages)
+    .values({ productId, url: input.url, sort: input.sort ?? 0 })
+    .returning({ id: productImages.id, url: productImages.url, sort: productImages.sort });
+
+  if (!product.primaryImage) {
+    await db
+      .update(products)
+      .set({ primaryImage: input.url, updatedAt: new Date() })
+      .where(eq(products.id, productId));
+  }
+  return image!;
+}
+
+export async function deleteProductImage(db: DB, productId: string, imageId: string) {
+  const [deleted] = await db
+    .delete(productImages)
+    .where(and(eq(productImages.id, imageId), eq(productImages.productId, productId)))
+    .returning({ url: productImages.url });
+  if (!deleted) throw notFound("IMAGE_NOT_FOUND", "Image not found on this product");
+
+  const [product] = await db
+    .select({ primaryImage: products.primaryImage })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+
+  if (product && product.primaryImage === deleted.url) {
+    const [next] = await db
+      .select({ url: productImages.url })
+      .from(productImages)
+      .where(eq(productImages.productId, productId))
+      .orderBy(asc(productImages.sort), asc(productImages.createdAt))
+      .limit(1);
+    await db
+      .update(products)
+      .set({ primaryImage: next?.url ?? null, updatedAt: new Date() })
+      .where(eq(products.id, productId));
+  }
+}
