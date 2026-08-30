@@ -75,6 +75,8 @@ export async function listProducts(db: DB, query: ListProductsQuery) {
   const filters: SQL[] = [];
   if (query.categoryId) filters.push(eq(products.categoryId, query.categoryId));
   if (query.brandId) filters.push(eq(products.brandId, query.brandId));
+  if (query.categorySlug) filters.push(eq(categories.slug, query.categorySlug));
+  if (query.brandSlug) filters.push(eq(brands.slug, query.brandSlug));
   if (query.status) filters.push(eq(products.status, query.status));
   if (query.q) {
     const like = `%${query.q}%`;
@@ -89,30 +91,45 @@ export async function listProducts(db: DB, query: ListProductsQuery) {
   const where = filters.length ? and(...filters) : undefined;
   const page: PageParams = { limit: query.limit, offset: query.offset };
 
+  const orderBy =
+    query.sort === "trending"
+      ? [desc(products.ratingCount), desc(products.createdAt)]
+      : query.sort === "top_rated"
+        ? [desc(products.ratingAvg), desc(products.ratingCount)]
+        : [desc(products.createdAt)];
+
   const [rows, [countRow]] = await Promise.all([
-    selectJoined(db)
-      .where(where)
-      .orderBy(desc(products.createdAt))
-      .limit(page.limit)
-      .offset(page.offset),
+    selectJoined(db).where(where).orderBy(...orderBy).limit(page.limit).offset(page.offset),
     db
       .select({ count: sql<number>`count(*)::int` })
       .from(products)
+      .innerJoin(categories, eq(products.categoryId, categories.id))
+      .innerJoin(brands, eq(products.brandId, brands.id))
       .where(where),
   ]);
 
   return paginated(rows.map(toOut), countRow?.count ?? 0, page);
 }
 
-export async function getProduct(db: DB, id: string) {
-  const [row] = await selectJoined(db).where(eq(products.id, id)).limit(1);
-  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+async function withImages(db: DB, row: JoinedRow) {
   const images = await db
     .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
     .from(productImages)
-    .where(eq(productImages.productId, id))
+    .where(eq(productImages.productId, row.product.id))
     .orderBy(asc(productImages.sort), asc(productImages.createdAt));
   return { ...toOut(row), images };
+}
+
+export async function getProduct(db: DB, id: string) {
+  const [row] = await selectJoined(db).where(eq(products.id, id)).limit(1);
+  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+  return withImages(db, row);
+}
+
+export async function getProductBySlug(db: DB, slug: string) {
+  const [row] = await selectJoined(db).where(eq(products.slug, slug)).limit(1);
+  if (!row) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+  return withImages(db, row);
 }
 
 export async function createProduct(db: DB, input: CreateProductInput) {

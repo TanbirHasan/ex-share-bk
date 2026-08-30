@@ -13,7 +13,10 @@ import { categoriesRoutes } from "./modules/categories/categories.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { internalRoutes } from "./modules/internal/internal.routes";
 import { meRoutes } from "./modules/me/me.routes";
+import { problemsRoutes } from "./modules/problems/problems.routes";
 import { productsRoutes } from "./modules/products/products.routes";
+import { reviewsRoutes } from "./modules/reviews/reviews.routes";
+import { searchRoutes } from "./modules/search/search.routes";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -80,6 +83,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(categoriesRoutes, { prefix: "/api/v1/categories" });
   await app.register(brandsRoutes, { prefix: "/api/v1/brands" });
   await app.register(productsRoutes, { prefix: "/api/v1/products" });
+  await app.register(searchRoutes, { prefix: "/api/v1/search" });
+  await app.register(reviewsRoutes, { prefix: "/api/v1" });
+  await app.register(problemsRoutes, { prefix: "/api/v1" });
 
   return app;
 }

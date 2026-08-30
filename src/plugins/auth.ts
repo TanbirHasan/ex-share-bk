@@ -16,6 +16,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** onRequest hook: require a valid bearer token, populates request.authUser. */
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** onRequest hook: populate request.authUser if a valid token is present, else null. */
+    optionalAuthenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     /** onRequest hook factory: require an authenticated user with one of the given roles. */
     requireRole: (
       ...roles: string[]
@@ -40,6 +42,15 @@ async function authPlugin(app: FastifyInstance): Promise<void> {
       req.authUser = req.user as AuthUser;
     } catch {
       throw unauthorized();
+    }
+  });
+
+  app.decorate("optionalAuthenticate", async function (req: FastifyRequest) {
+    try {
+      await req.jwtVerify();
+      req.authUser = req.user as AuthUser;
+    } catch {
+      req.authUser = null;
     }
   });
 

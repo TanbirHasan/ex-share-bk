@@ -55,14 +55,21 @@ export const productWithImagesOut = productOut.extend({
   images: z.array(productImageOut),
 });
 
+export const productSort = z.enum(["newest", "trending", "top_rated"]);
+
 export const listProductsQuery = z.object({
   q: z.string().max(120).optional(),
   categoryId: z.string().uuid().optional(),
   brandId: z.string().uuid().optional(),
+  categorySlug: z.string().max(120).optional(),
+  brandSlug: z.string().max(120).optional(),
   status: productStatusEnum.optional(),
+  sort: productSort.optional(),
   ...paginationQuery,
 });
 export type ListProductsQuery = z.infer<typeof listProductsQuery>;
+
+export const productSlugParams = z.object({ slug: z.string().min(1).max(140) });
 
 export const listProductsOut = paginatedOut(productOut);
 

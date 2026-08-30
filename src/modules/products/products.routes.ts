@@ -1,14 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { db } from "../../db/client";
-import { productImageOut } from "./products.schema";
 import {
   addImageBody,
   createProductBody,
   listProductsOut,
   listProductsQuery,
+  productImageOut,
   productImageParams,
   productParams,
+  productSlugParams,
   productWithImagesOut,
   updateProductBody,
 } from "./products.schema";
@@ -31,6 +32,12 @@ export async function productsRoutes(app: FastifyInstance): Promise<void> {
     "/",
     { schema: { querystring: listProductsQuery, response: { 200: listProductsOut } } },
     async (req) => svc.listProducts(db, req.query),
+  );
+
+  r.get(
+    "/by-slug/:slug",
+    { schema: { params: productSlugParams, response: { 200: productWithImagesOut } } },
+    async (req) => svc.getProductBySlug(db, req.params.slug),
   );
 
   r.get(
