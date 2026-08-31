@@ -8,7 +8,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { products } from "./catalog";
+import { products, stores } from "./catalog";
 import { contentLang, moderationStatus, ownershipDuration, wouldBuyAgain } from "./enums";
 import { users } from "./users";
 
@@ -37,7 +37,8 @@ export const reviews = pgTable(
     cons: text("cons").array().notNull().default([]),
 
     purchasePrice: integer("purchase_price"), // BDT
-    purchaseStore: text("purchase_store"),
+    purchaseStore: text("purchase_store"), // free-text display name (kept for legacy + "other")
+    storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
 
     contentLang: contentLang("content_lang").notNull().default("en"),
     status: moderationStatus("status").notNull().default("pending"),

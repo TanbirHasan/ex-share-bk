@@ -46,6 +46,10 @@ export const problemCategory = pgEnum("problem_category", [
 
 export const voteTargetType = pgEnum("vote_target_type", ["review", "solution"]);
 
+export const followTargetType = pgEnum("follow_target_type", ["product", "problem"]);
+
+export const pricePointSource = pgEnum("price_point_source", ["review", "manual"]);
+
 export const reportTargetType = pgEnum("report_target_type", [
   "review",
   "problem",

@@ -1,10 +1,11 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { products, reviews, solutions, users, votes } from "../../db/schema";
+import { pricePoints, products, reviews, solutions, stores, users, votes } from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
+import { resolveStore } from "../../lib/stores";
 import type {
   CreateReviewInput,
   ListReviewsQuery,
@@ -146,6 +147,8 @@ const baseSelect = {
   cons: reviews.cons,
   purchasePrice: reviews.purchasePrice,
   purchaseStore: reviews.purchaseStore,
+  storeSlug: stores.slug,
+  storeName: stores.name,
   contentLang: reviews.contentLang,
   status: reviews.status,
   helpfulCount: reviews.helpfulCount,
@@ -173,6 +176,10 @@ function shape(row: Record<string, unknown>, votedIds: Set<string>, viewerId?: s
     cons: (row.cons ?? []) as string[],
     purchasePrice: (row.purchasePrice ?? null) as number | null,
     purchaseStore: (row.purchaseStore ?? null) as string | null,
+    store:
+      row.storeSlug && row.storeName
+        ? { slug: row.storeSlug as string, name: row.storeName as string }
+        : null,
     contentLang: row.contentLang as "bn" | "en",
     status: row.status as ReviewStatus,
     helpfulCount: row.helpfulCount as number,
@@ -214,6 +221,7 @@ export async function getReviewById(db: DB, id: string, viewerId?: string) {
     .select(baseSelect)
     .from(reviews)
     .innerJoin(users, eq(reviews.userId, users.id))
+    .leftJoin(stores, eq(reviews.storeId, stores.id))
     .where(eq(reviews.id, id))
     .limit(1);
   if (!row) throw notFound("REVIEW_NOT_FOUND", "Review not found");
@@ -243,6 +251,7 @@ export async function listReviews(
       .select(baseSelect)
       .from(reviews)
       .innerJoin(users, eq(reviews.userId, users.id))
+    .leftJoin(stores, eq(reviews.storeId, stores.id))
       .where(where)
       .orderBy(...orderBy)
       .limit(page.limit)
@@ -267,6 +276,7 @@ export async function getMyReview(db: DB, productId: string, userId: string) {
     .select(baseSelect)
     .from(reviews)
     .innerJoin(users, eq(reviews.userId, users.id))
+    .leftJoin(stores, eq(reviews.storeId, stores.id))
     .where(and(eq(reviews.productId, productId), eq(reviews.userId, userId)))
     .limit(1);
   if (!row) return null;
@@ -285,6 +295,7 @@ export async function listMyReviews(db: DB, userId: string, page: PageParams) {
       })
       .from(reviews)
       .innerJoin(users, eq(reviews.userId, users.id))
+    .leftJoin(stores, eq(reviews.storeId, stores.id))
       .innerJoin(products, eq(reviews.productId, products.id))
       .where(eq(reviews.userId, userId))
       .orderBy(desc(reviews.createdAt))
@@ -336,6 +347,7 @@ export async function createReview(
   }
 
   const { status } = await checkContentGate(db, userId);
+  const store = await resolveStore(db, input.purchaseStore);
 
   const created = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -351,11 +363,23 @@ export async function createReview(
         pros: input.pros ?? [],
         cons: input.cons ?? [],
         purchasePrice: input.purchasePrice ?? null,
-        purchaseStore: input.purchaseStore ?? null,
+        purchaseStore: store?.name ?? input.purchaseStore ?? null,
+        storeId: store?.id ?? null,
         contentLang: input.contentLang ?? "en",
         status,
       })
       .returning({ id: reviews.id });
+
+    if (typeof input.purchasePrice === "number" && input.purchasePrice > 0) {
+      await tx.insert(pricePoints).values({
+        productId,
+        price: input.purchasePrice,
+        source: "review",
+        storeId: store?.id ?? null,
+        reportedBy: userId,
+      });
+    }
+
     await recomputeProduct(tx, productId);
     await recomputeUserCount(tx, userId);
     return row!;
@@ -379,6 +403,9 @@ export async function updateReview(
   if (!existing) throw notFound("REVIEW_NOT_FOUND", "Review not found");
   if (existing.userId !== userId && !isAdmin) throw forbidden();
 
+  const store =
+    input.purchaseStore !== undefined ? await resolveStore(db, input.purchaseStore) : undefined;
+
   await db.transaction(async (tx) => {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (input.rating !== undefined) patch.rating = input.rating;
@@ -389,7 +416,10 @@ export async function updateReview(
     if (input.pros !== undefined) patch.pros = input.pros;
     if (input.cons !== undefined) patch.cons = input.cons;
     if (input.purchasePrice !== undefined) patch.purchasePrice = input.purchasePrice ?? null;
-    if (input.purchaseStore !== undefined) patch.purchaseStore = input.purchaseStore ?? null;
+    if (input.purchaseStore !== undefined) {
+      patch.purchaseStore = store?.name ?? input.purchaseStore ?? null;
+      patch.storeId = store?.id ?? null;
+    }
     if (input.contentLang !== undefined) patch.contentLang = input.contentLang;
 
     await tx.update(reviews).set(patch).where(eq(reviews.id, reviewId));

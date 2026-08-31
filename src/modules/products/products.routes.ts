@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { db } from "../../db/client";
+import { z } from "zod";
 import {
   addImageBody,
   createProductBody,
@@ -8,6 +9,7 @@ import {
   listProductsQuery,
   productImageOut,
   productImageParams,
+  productOut,
   productParams,
   productSlugParams,
   productWithImagesOut,
@@ -44,6 +46,18 @@ export async function productsRoutes(app: FastifyInstance): Promise<void> {
     "/:id",
     { schema: { params: productParams, response: { 200: productWithImagesOut } } },
     async (req) => svc.getProduct(db, req.params.id),
+  );
+
+  r.get(
+    "/:id/related",
+    {
+      schema: {
+        params: productParams,
+        querystring: z.object({ limit: z.coerce.number().int().min(1).max(12).default(6) }),
+        response: { 200: z.array(productOut) },
+      },
+    },
+    async (req) => svc.getRelatedProducts(db, req.params.id, req.query.limit),
   );
 
   r.post(

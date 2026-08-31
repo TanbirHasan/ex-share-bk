@@ -67,6 +67,7 @@ export const reviewOut = z.object({
   cons: z.array(z.string()),
   purchasePrice: z.number().int().nullable(),
   purchaseStore: z.string().nullable(),
+  store: z.object({ slug: z.string(), name: z.string() }).nullable(),
   contentLang: z.enum(["bn", "en"]),
   status: z.enum(["pending", "approved", "rejected"]),
   helpfulCount: z.number().int(),

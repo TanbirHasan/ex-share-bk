@@ -111,6 +111,23 @@ export async function listProducts(db: DB, query: ListProductsQuery) {
   return paginated(rows.map(toOut), countRow?.count ?? 0, page);
 }
 
+/** Other products in the same category, best-reviewed first. */
+export async function getRelatedProducts(db: DB, id: string, limit: number) {
+  const [self] = await db
+    .select({ categoryId: products.categoryId })
+    .from(products)
+    .where(eq(products.id, id))
+    .limit(1);
+  if (!self) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
+
+  const rows = await selectJoined(db)
+    .where(and(eq(products.categoryId, self.categoryId), sql`${products.id} <> ${id}`))
+    .orderBy(desc(products.ratingCount), desc(products.ratingAvg), desc(products.createdAt))
+    .limit(limit);
+
+  return rows.map(toOut);
+}
+
 async function withImages(db: DB, row: JoinedRow) {
   const images = await db
     .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })

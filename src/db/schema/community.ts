@@ -8,7 +8,12 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { products } from "./catalog";
-import { reportStatus, reportTargetType, voteTargetType } from "./enums";
+import {
+  followTargetType,
+  reportStatus,
+  reportTargetType,
+  voteTargetType,
+} from "./enums";
 import { users } from "./users";
 
 // One vote per user per (targetType, targetId). Target is a review or a solution.
@@ -59,6 +64,25 @@ export const contentReports = pgTable(
   (t) => [index("content_reports_status_idx").on(t.status)],
 );
 
+// A user watching a product or a problem for updates. (Alerts light up once
+// notifications exist; for now it powers a "following" list.)
+export const follows = pgTable(
+  "follows",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: followTargetType("target_type").notNull(),
+    targetId: uuid("target_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.targetType, t.targetId] }),
+    index("follows_target_idx").on(t.targetType, t.targetId),
+  ],
+);
+
 export type Vote = typeof votes.$inferSelect;
 export type SavedProduct = typeof savedProducts.$inferSelect;
 export type ContentReport = typeof contentReports.$inferSelect;
+export type Follow = typeof follows.$inferSelect;

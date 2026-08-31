@@ -43,6 +43,13 @@
       "when": 1788170604258,
       "tag": "0005_equal_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788172361238,
+      "tag": "0006_huge_grim_reaper",
+      "breakpoints": true
     }
   ]
 }
