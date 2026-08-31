@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, getTableColumns, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { brands, categories, productImages, products } from "../../db/schema";
+import { brands, categories, problems, productImages, products } from "../../db/schema";
 import { badRequest, conflict, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { deleteImageByUrl } from "../../lib/uploads";
@@ -130,12 +130,18 @@ export async function getRelatedProducts(db: DB, id: string, limit: number) {
 }
 
 async function withImages(db: DB, row: JoinedRow) {
-  const images = await db
-    .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
-    .from(productImages)
-    .where(eq(productImages.productId, row.product.id))
-    .orderBy(asc(productImages.sort), asc(productImages.createdAt));
-  return { ...toOut(row), images };
+  const [images, [problemRow]] = await Promise.all([
+    db
+      .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
+      .from(productImages)
+      .where(eq(productImages.productId, row.product.id))
+      .orderBy(asc(productImages.sort), asc(productImages.createdAt)),
+    db
+      .select({ n: sql<number>`(count(*))::int` })
+      .from(problems)
+      .where(and(eq(problems.productId, row.product.id), eq(problems.status, "approved"))),
+  ]);
+  return { ...toOut(row), images, problemCount: problemRow?.n ?? 0 };
 }
 
 export async function getProduct(db: DB, id: string) {

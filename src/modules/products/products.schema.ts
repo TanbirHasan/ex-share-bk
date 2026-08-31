@@ -53,6 +53,7 @@ export const productOut = z.object({
 
 export const productWithImagesOut = productOut.extend({
   images: z.array(productImageOut),
+  problemCount: z.number().int(),
 });
 
 export const productSort = z.enum(["newest", "trending", "top_rated"]);

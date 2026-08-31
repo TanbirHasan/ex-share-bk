@@ -1,4 +1,4 @@
-import { and, desc, eq, getTableColumns, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import {
   problemReports,
@@ -341,6 +341,7 @@ export async function getProblemBySlug(db: DB, slug: string, viewerId?: string) 
       title: problems.title,
       description: problems.description,
       contentLang: problems.contentLang,
+      status: problems.status,
       reportCount: problems.reportCount,
       createdAt: problems.createdAt,
       createdBy: problems.createdBy,
@@ -381,6 +382,24 @@ export async function getProblemBySlug(db: DB, slug: string, viewerId?: string) 
 
   const solutionList = await loadSolutions(db, row.id, viewerId);
 
+  // Does the viewer have a solution here that's still held for moderation?
+  // (loadSolutions only returns approved ones, so a pending one is invisible.)
+  let viewerPendingSolution = false;
+  if (viewerId) {
+    const [held] = await db
+      .select({ id: solutions.id })
+      .from(solutions)
+      .where(
+        and(
+          eq(solutions.problemId, row.id),
+          eq(solutions.userId, viewerId),
+          ne(solutions.status, "approved"),
+        ),
+      )
+      .limit(1);
+    viewerPendingSolution = Boolean(held);
+  }
+
   return {
     id: row.id,
     slug: row.slug,
@@ -388,6 +407,7 @@ export async function getProblemBySlug(db: DB, slug: string, viewerId?: string) 
     title: row.title,
     description: row.description,
     contentLang: row.contentLang,
+    status: row.status,
     reportCount: row.reportCount,
     createdAt: row.createdAt,
     product: row.product,
@@ -406,6 +426,7 @@ export async function getProblemBySlug(db: DB, slug: string, viewerId?: string) 
         }
       : null,
     solutions: solutionList,
+    viewerPendingSolution,
   };
 }
 
@@ -715,6 +736,7 @@ export async function listMyProblems(db: DB, userId: string, page: PageParams) {
         solutionCount: solutionCountSql,
         createdAt: problems.createdAt,
         createdBy: problems.createdBy,
+        status: problems.status,
         product: productRef,
       })
       .from(problems)
@@ -747,6 +769,7 @@ export async function listMySolutions(db: DB, userId: string, page: PageParams) 
         workedCount: solutions.workedCount,
         didntWorkCount: solutions.didntWorkCount,
         helpfulCount: solutions.helpfulCount,
+        status: solutions.status,
         createdAt: solutions.createdAt,
         updatedAt: solutions.updatedAt,
         authorId: users.id,
@@ -779,6 +802,7 @@ export async function listMySolutions(db: DB, userId: string, page: PageParams) 
     workedCount: r.workedCount,
     didntWorkCount: r.didntWorkCount,
     helpfulCount: r.helpfulCount,
+    status: r.status,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     author: {

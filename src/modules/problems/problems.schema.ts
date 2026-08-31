@@ -122,11 +122,13 @@ export const problemDetailOut = z.object({
   title: z.string(),
   description: z.string(),
   contentLang: z.enum(["bn", "en"]),
+  status: z.enum(["pending", "approved", "rejected"]),
   reportCount: z.number().int(),
   createdAt: z.date(),
   product: productRef,
   reporter: person.nullable(),
   viewerHasReported: z.boolean(),
+  viewerPendingSolution: z.boolean(),
   whenStarted: z.record(z.number()),
   warrantyBreakdown: z.record(z.number()),
   repairCost: z
@@ -140,12 +142,15 @@ export const problemDetailOut = z.object({
   solutions: z.array(solutionOut),
 });
 
+const moderationStatus = z.enum(["pending", "approved", "rejected"]);
+
 export const myProblemsOut = paginatedOut(
-  problemListItem.extend({ viewerIsCreator: z.boolean() }),
+  problemListItem.extend({ viewerIsCreator: z.boolean(), status: moderationStatus }),
 );
 
 export const mySolutionsOut = paginatedOut(
   solutionOut.extend({
+    status: moderationStatus,
     problem: z.object({
       id: z.string().uuid(),
       slug: z.string(),
