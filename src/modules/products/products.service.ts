@@ -1,6 +1,14 @@
 import { and, asc, desc, eq, getTableColumns, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { brands, categories, problems, productImages, products } from "../../db/schema";
+import {
+  brands,
+  categories,
+  problems,
+  productImages,
+  products,
+  questions,
+  serviceExperiences,
+} from "../../db/schema";
 import { badRequest, conflict, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { deleteImageByUrl } from "../../lib/uploads";
@@ -130,18 +138,36 @@ export async function getRelatedProducts(db: DB, id: string, limit: number) {
 }
 
 async function withImages(db: DB, row: JoinedRow) {
-  const [images, [problemRow]] = await Promise.all([
+  const pid = row.product.id;
+  const n = sql<number>`(count(*))::int`;
+
+  const [images, [problemRow], [questionRow], [serviceRow]] = await Promise.all([
     db
       .select({ id: productImages.id, url: productImages.url, sort: productImages.sort })
       .from(productImages)
-      .where(eq(productImages.productId, row.product.id))
+      .where(eq(productImages.productId, pid))
       .orderBy(asc(productImages.sort), asc(productImages.createdAt)),
     db
-      .select({ n: sql<number>`(count(*))::int` })
+      .select({ n })
       .from(problems)
-      .where(and(eq(problems.productId, row.product.id), eq(problems.status, "approved"))),
+      .where(and(eq(problems.productId, pid), eq(problems.status, "approved"))),
+    db
+      .select({ n })
+      .from(questions)
+      .where(and(eq(questions.productId, pid), eq(questions.status, "approved"))),
+    db
+      .select({ n })
+      .from(serviceExperiences)
+      .where(and(eq(serviceExperiences.productId, pid), eq(serviceExperiences.status, "approved"))),
   ]);
-  return { ...toOut(row), images, problemCount: problemRow?.n ?? 0 };
+
+  return {
+    ...toOut(row),
+    images,
+    problemCount: problemRow?.n ?? 0,
+    questionCount: questionRow?.n ?? 0,
+    serviceCount: serviceRow?.n ?? 0,
+  };
 }
 
 export async function getProduct(db: DB, id: string) {
