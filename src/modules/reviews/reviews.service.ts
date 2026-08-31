@@ -17,6 +17,11 @@ type ReviewStatus = "pending" | "approved" | "rejected";
 
 type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 
+/** Recompute a product's rating aggregates in its own transaction (for external callers). */
+export async function recomputeProductAggregates(db: DB, productId: string) {
+  await db.transaction((tx) => recomputeProduct(tx, productId));
+}
+
 /** Recompute the denormalised rating aggregates on a product row. */
 async function recomputeProduct(tx: Tx, productId: string) {
   const rows = await tx

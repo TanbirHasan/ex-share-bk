@@ -10,13 +10,19 @@ import authPlugin from "./plugins/auth";
 import securityPlugin from "./plugins/security";
 import { brandsRoutes } from "./modules/brands/brands.routes";
 import { categoriesRoutes } from "./modules/categories/categories.routes";
+import { compareRoutes } from "./modules/compare/compare.routes";
 import { healthRoutes } from "./modules/health/health.routes";
 import { internalRoutes } from "./modules/internal/internal.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { problemsRoutes } from "./modules/problems/problems.routes";
 import { productsRoutes } from "./modules/products/products.routes";
+import { recommendRoutes } from "./modules/recommend/recommend.routes";
+import { reportsRoutes } from "./modules/reports/reports.routes";
 import { reviewsRoutes } from "./modules/reviews/reviews.routes";
+import { savedRoutes } from "./modules/saved/saved.routes";
 import { searchRoutes } from "./modules/search/search.routes";
+import { serviceRoutes } from "./modules/service/service.routes";
+import { statsRoutes } from "./modules/stats/stats.routes";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -84,8 +90,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(brandsRoutes, { prefix: "/api/v1/brands" });
   await app.register(productsRoutes, { prefix: "/api/v1/products" });
   await app.register(searchRoutes, { prefix: "/api/v1/search" });
+  await app.register(compareRoutes, { prefix: "/api/v1/compare" });
+  await app.register(statsRoutes, { prefix: "/api/v1/stats" });
+  await app.register(recommendRoutes, { prefix: "/api/v1/recommend" });
   await app.register(reviewsRoutes, { prefix: "/api/v1" });
   await app.register(problemsRoutes, { prefix: "/api/v1" });
+  await app.register(serviceRoutes, { prefix: "/api/v1" });
+  await app.register(savedRoutes, { prefix: "/api/v1" });
+  await app.register(reportsRoutes, { prefix: "/api/v1" });
 
   return app;
 }

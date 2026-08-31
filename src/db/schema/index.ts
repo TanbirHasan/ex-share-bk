@@ -5,5 +5,6 @@ export * from "./catalog";
 export * from "./reviews";
 export * from "./problems";
 export * from "./solutions";
+export * from "./service";
 export * from "./community";
 export * from "./system";

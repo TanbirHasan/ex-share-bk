@@ -15,6 +15,13 @@
       "when": 1788109492612,
       "tag": "0001_demonic_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788148441396,
+      "tag": "0002_broad_micromax",
+      "breakpoints": true
     }
   ]
 }
