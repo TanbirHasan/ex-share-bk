@@ -15,6 +15,11 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
+  app.log.info(
+    { translate: config.TRANSLATE_ENDPOINT ?? "disabled" },
+    "content translation",
+  );
+
   try {
     await app.listen({ port: config.PORT, host: config.HOST });
   } catch (err) {

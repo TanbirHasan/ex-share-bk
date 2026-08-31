@@ -1,6 +1,7 @@
 import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { products, serviceExperiences, users } from "../../db/schema";
+import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import type { CreateServiceInput, ListServiceQuery, UpdateServiceInput } from "./service.schema";
@@ -231,6 +232,8 @@ export async function createServiceExperience(
     );
   }
 
+  const { status } = await checkContentGate(db, userId);
+
   const [row] = await db
     .insert(serviceExperiences)
     .values({
@@ -247,11 +250,25 @@ export async function createServiceExperience(
       durationDays: input.durationDays ?? null,
       comment: input.comment ?? null,
       contentLang: input.contentLang ?? "en",
-      status: "approved",
+      status,
     })
     .returning({ id: serviceExperiences.id });
 
   return getServiceById(db, row!.id, userId);
+}
+
+/** Moderator approve/reject of a held service experience. */
+export async function setServiceModeration(
+  db: DB,
+  id: string,
+  status: "approved" | "rejected",
+) {
+  const [row] = await db
+    .update(serviceExperiences)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(serviceExperiences.id, id))
+    .returning({ id: serviceExperiences.id });
+  if (!row) throw notFound("SERVICE_NOT_FOUND", "Service experience not found");
 }
 
 export async function updateServiceExperience(

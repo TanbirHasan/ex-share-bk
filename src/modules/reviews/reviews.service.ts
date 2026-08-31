@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { products, reviews, solutions, users, votes } from "../../db/schema";
+import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
@@ -101,6 +102,25 @@ async function recomputeUserCount(tx: Tx, userId: string) {
     .update(users)
     .set({ reviewCount: row?.n ?? 0, updatedAt: new Date() })
     .where(eq(users.id, userId));
+}
+
+/** Moderator approve/reject of a held review — flips status and refreshes aggregates. */
+export async function setReviewModeration(
+  db: DB,
+  id: string,
+  status: "approved" | "rejected",
+) {
+  const [row] = await db
+    .update(reviews)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(reviews.id, id))
+    .returning({ productId: reviews.productId, userId: reviews.userId });
+  if (!row) throw notFound("REVIEW_NOT_FOUND", "Review not found");
+  await db.transaction(async (tx) => {
+    await recomputeProduct(tx, row.productId);
+    await recomputeUserCount(tx, row.userId);
+  });
+  await recomputeUserHelpfulReceived(db, row.userId);
 }
 
 async function recomputeHelpful(tx: Tx, reviewId: string) {
@@ -315,6 +335,8 @@ export async function createReview(
     );
   }
 
+  const { status } = await checkContentGate(db, userId);
+
   const created = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(reviews)
@@ -331,7 +353,7 @@ export async function createReview(
         purchasePrice: input.purchasePrice ?? null,
         purchaseStore: input.purchaseStore ?? null,
         contentLang: input.contentLang ?? "en",
-        status: "approved",
+        status,
       })
       .returning({ id: reviews.id });
     await recomputeProduct(tx, productId);

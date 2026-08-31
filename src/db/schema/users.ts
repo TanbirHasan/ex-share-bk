@@ -8,6 +8,8 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   role: userRole("role").notNull().default("user"),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  // Set by an admin to block the account from creating content.
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
 
   // Denormalised contribution counters (kept in sync by services).
   reviewCount: integer("review_count").notNull().default(0),

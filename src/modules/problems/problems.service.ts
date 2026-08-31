@@ -9,6 +9,7 @@ import {
   users,
   votes,
 } from "../../db/schema";
+import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
@@ -72,7 +73,8 @@ async function recomputeUserProblemCount(tx: Tx, userId: string) {
   const [row] = await tx
     .select({ n: sql<number>`count(distinct ${problemReports.problemId})::int` })
     .from(problemReports)
-    .where(eq(problemReports.userId, userId));
+    .innerJoin(problems, eq(problemReports.problemId, problems.id))
+    .where(and(eq(problemReports.userId, userId), eq(problems.status, "approved")));
   await tx.update(users).set({ problemCount: row?.n ?? 0 }).where(eq(users.id, userId));
 }
 
@@ -82,6 +84,39 @@ async function recomputeUserSolutionCount(tx: Tx, userId: string) {
     .from(solutions)
     .where(and(eq(solutions.userId, userId), eq(solutions.status, "approved")));
   await tx.update(users).set({ solutionCount: row?.n ?? 0 }).where(eq(users.id, userId));
+}
+
+/** Moderator approve/reject of a held problem. */
+export async function setProblemModeration(
+  db: DB,
+  id: string,
+  status: "approved" | "rejected",
+) {
+  const [row] = await db
+    .update(problems)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(problems.id, id))
+    .returning({ createdBy: problems.createdBy });
+  if (!row) throw notFound("PROBLEM_NOT_FOUND", "Problem not found");
+  if (row.createdBy) {
+    await db.transaction((tx) => recomputeUserProblemCount(tx, row.createdBy!));
+  }
+}
+
+/** Moderator approve/reject of a held solution. */
+export async function setSolutionModeration(
+  db: DB,
+  id: string,
+  status: "approved" | "rejected",
+) {
+  const [row] = await db
+    .update(solutions)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(solutions.id, id))
+    .returning({ userId: solutions.userId });
+  if (!row) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
+  await db.transaction((tx) => recomputeUserSolutionCount(tx, row.userId));
+  await recomputeUserHelpfulReceived(db, row.userId);
 }
 
 // --- solutions read -----------------------------------------------------------
@@ -343,6 +378,8 @@ export async function createProblem(
     .limit(1);
   if (!prod) throw notFound("PRODUCT_NOT_FOUND", "Product not found");
 
+  const gate = await checkContentGate(db, userId);
+
   const created = await db.transaction(async (tx) => {
     let slug = `${slugify(input.title)}-${slugSuffix()}`;
     for (let i = 0; i < 3; i++) {
@@ -365,7 +402,7 @@ export async function createProblem(
         description: input.description,
         contentLang: input.contentLang ?? "en",
         createdBy: userId,
-        status: "approved",
+        status: gate.status,
       })
       .returning({ id: problems.id, slug: problems.slug });
 
@@ -445,13 +482,15 @@ export async function createSolution(
     .limit(1);
   if (!problem) throw notFound("PROBLEM_NOT_FOUND", "Problem not found");
 
+  const { status } = await checkContentGate(db, userId);
+
   await db.transaction(async (tx) => {
     await tx.insert(solutions).values({
       problemId,
       userId,
       body: input.body,
       contentLang: input.contentLang ?? "en",
-      status: "approved",
+      status,
     });
     await recomputeUserSolutionCount(tx, userId);
   });
