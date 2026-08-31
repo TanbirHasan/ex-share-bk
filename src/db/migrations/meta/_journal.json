@@ -22,6 +22,20 @@
       "when": 1788148441396,
       "tag": "0002_broad_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788152347844,
+      "tag": "0003_slimy_grandmaster",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788152789497,
+      "tag": "0004_yielding_green_goblin",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,9 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { products, reviews, users, votes } from "../../db/schema";
+import { products, reviews, solutions, users, votes } from "../../db/schema";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
+import { reputationScore } from "../../lib/reputation";
 import type {
   CreateReviewInput,
   ListReviewsQuery,
@@ -20,6 +21,24 @@ type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 /** Recompute a product's rating aggregates in its own transaction (for external callers). */
 export async function recomputeProductAggregates(db: DB, productId: string) {
   await db.transaction((tx) => recomputeProduct(tx, productId));
+}
+
+/** Recompute how many times the community found a user's contributions useful. */
+export async function recomputeUserHelpfulReceived(db: DB, userId: string) {
+  const [rev] = await db
+    .select({ n: sql<number>`coalesce(sum(${reviews.helpfulCount}), 0)::int` })
+    .from(reviews)
+    .where(and(eq(reviews.userId, userId), eq(reviews.status, "approved")));
+  const [sol] = await db
+    .select({
+      n: sql<number>`coalesce(sum(${solutions.helpfulCount} + ${solutions.workedCount}), 0)::int`,
+    })
+    .from(solutions)
+    .where(and(eq(solutions.userId, userId), eq(solutions.status, "approved")));
+  await db
+    .update(users)
+    .set({ helpfulReceived: (rev?.n ?? 0) + (sol?.n ?? 0) })
+    .where(eq(users.id, userId));
 }
 
 /** Recompute the denormalised rating aggregates on a product row. */
@@ -115,6 +134,10 @@ const baseSelect = {
   authorId: users.id,
   authorName: users.name,
   authorAvatar: users.avatarUrl,
+  authorReviews: users.reviewCount,
+  authorProblems: users.problemCount,
+  authorSolutions: users.solutionCount,
+  authorHelpful: users.helpfulReceived,
 };
 
 function shape(row: Record<string, unknown>, votedIds: Set<string>, viewerId?: string) {
@@ -139,6 +162,12 @@ function shape(row: Record<string, unknown>, votedIds: Set<string>, viewerId?: s
       id: row.authorId as string,
       name: (row.authorName ?? null) as string | null,
       avatarUrl: (row.authorAvatar ?? null) as string | null,
+      reputation: reputationScore({
+        reviews: (row.authorReviews ?? 0) as number,
+        problems: (row.authorProblems ?? 0) as number,
+        solutions: (row.authorSolutions ?? 0) as number,
+        helpfulReceived: (row.authorHelpful ?? 0) as number,
+      }),
     },
     viewerHasVoted: votedIds.has(row.id as string),
     viewerCanEdit: viewerId != null && row.userId === viewerId,
@@ -371,7 +400,7 @@ export async function deleteReview(
 
 export async function voteHelpful(db: DB, reviewId: string, userId: string, on: boolean) {
   const [review] = await db
-    .select({ id: reviews.id })
+    .select({ id: reviews.id, userId: reviews.userId })
     .from(reviews)
     .where(eq(reviews.id, reviewId))
     .limit(1);
@@ -396,6 +425,8 @@ export async function voteHelpful(db: DB, reviewId: string, userId: string, on: 
     }
     await recomputeHelpful(tx, reviewId);
   });
+
+  await recomputeUserHelpfulReceived(db, review.userId);
 
   return getReviewById(db, reviewId, userId);
 }

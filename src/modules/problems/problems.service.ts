@@ -11,7 +11,9 @@ import {
 } from "../../db/schema";
 import { conflict, forbidden, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
+import { reputationScore } from "../../lib/reputation";
 import { slugify, slugSuffix } from "../../lib/slug";
+import { recomputeUserHelpfulReceived } from "../reviews/reviews.service";
 import type {
   AddReportInput,
   CreateProblemInput,
@@ -100,6 +102,10 @@ async function loadSolutions(db: DB, problemId: string, viewerId?: string) {
       authorId: users.id,
       authorName: users.name,
       authorAvatar: users.avatarUrl,
+      authorReviews: users.reviewCount,
+      authorProblems: users.problemCount,
+      authorSolutions: users.solutionCount,
+      authorHelpful: users.helpfulReceived,
     })
     .from(solutions)
     .innerJoin(users, eq(solutions.userId, users.id))
@@ -149,7 +155,17 @@ async function loadSolutions(db: DB, problemId: string, viewerId?: string) {
     helpfulCount: r.helpfulCount,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
-    author: { id: r.authorId, name: r.authorName, avatarUrl: r.authorAvatar },
+    author: {
+      id: r.authorId,
+      name: r.authorName,
+      avatarUrl: r.authorAvatar,
+      reputation: reputationScore({
+        reviews: r.authorReviews,
+        problems: r.authorProblems,
+        solutions: r.authorSolutions,
+        helpfulReceived: r.authorHelpful,
+      }),
+    },
     viewerConfirmed: confirmed.has(r.id)
       ? confirmed.get(r.id)
         ? ("worked" as const)
@@ -406,12 +422,12 @@ export async function addReport(
 
 async function solutionSlug(db: DB, solutionId: string) {
   const [row] = await db
-    .select({ slug: problems.slug })
+    .select({ slug: problems.slug, ownerId: solutions.userId })
     .from(solutions)
     .innerJoin(problems, eq(solutions.problemId, problems.id))
     .where(eq(solutions.id, solutionId))
     .limit(1);
-  return row?.slug ?? null;
+  return row ?? null;
 }
 
 export async function createSolution(
@@ -459,8 +475,8 @@ export async function updateSolution(
     .update(solutions)
     .set({ body, updatedAt: new Date() })
     .where(eq(solutions.id, solutionId));
-  const slug = await solutionSlug(db, solutionId);
-  return getProblemBySlug(db, slug!, userId);
+  const s = await solutionSlug(db, solutionId);
+  return getProblemBySlug(db, s!.slug, userId);
 }
 
 export async function deleteSolution(
@@ -488,8 +504,8 @@ export async function confirmSolution(
   userId: string,
   worked: boolean | null,
 ) {
-  const slug = await solutionSlug(db, solutionId);
-  if (!slug) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
+  const s = await solutionSlug(db, solutionId);
+  if (!s) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
 
   await db.transaction(async (tx) => {
     if (worked === null) {
@@ -513,7 +529,8 @@ export async function confirmSolution(
     await recomputeConfirmations(tx, solutionId);
   });
 
-  return getProblemBySlug(db, slug, userId);
+  await recomputeUserHelpfulReceived(db, s.ownerId);
+  return getProblemBySlug(db, s.slug, userId);
 }
 
 export async function voteSolution(
@@ -522,8 +539,8 @@ export async function voteSolution(
   userId: string,
   on: boolean,
 ) {
-  const slug = await solutionSlug(db, solutionId);
-  if (!slug) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
+  const s = await solutionSlug(db, solutionId);
+  if (!s) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
 
   await db.transaction(async (tx) => {
     if (on) {
@@ -545,7 +562,8 @@ export async function voteSolution(
     await recomputeSolutionHelpful(tx, solutionId);
   });
 
-  return getProblemBySlug(db, slug, userId);
+  await recomputeUserHelpfulReceived(db, s.ownerId);
+  return getProblemBySlug(db, s.slug, userId);
 }
 
 // --- dashboard --------------------------------------------------------------
@@ -605,6 +623,10 @@ export async function listMySolutions(db: DB, userId: string, page: PageParams) 
         authorId: users.id,
         authorName: users.name,
         authorAvatar: users.avatarUrl,
+        authorReviews: users.reviewCount,
+        authorProblems: users.problemCount,
+        authorSolutions: users.solutionCount,
+        authorHelpful: users.helpfulReceived,
         problemSlug: problems.slug,
         problemTitle: problems.title,
         product: productRef,
@@ -630,7 +652,17 @@ export async function listMySolutions(db: DB, userId: string, page: PageParams) 
     helpfulCount: r.helpfulCount,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
-    author: { id: r.authorId, name: r.authorName, avatarUrl: r.authorAvatar },
+    author: {
+      id: r.authorId,
+      name: r.authorName,
+      avatarUrl: r.authorAvatar,
+      reputation: reputationScore({
+        reviews: r.authorReviews,
+        problems: r.authorProblems,
+        solutions: r.authorSolutions,
+        helpfulReceived: r.authorHelpful,
+      }),
+    },
     viewerConfirmed: "none" as const,
     viewerHasVoted: false,
     viewerCanEdit: true,

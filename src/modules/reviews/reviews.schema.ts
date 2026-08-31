@@ -52,6 +52,7 @@ export const reviewAuthor = z.object({
   id: z.string().uuid(),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
+  reputation: z.number().int(),
 });
 
 export const reviewOut = z.object({

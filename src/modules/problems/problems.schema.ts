@@ -84,6 +84,8 @@ const person = z.object({
   avatarUrl: z.string().nullable(),
 });
 
+const solutionAuthor = person.extend({ reputation: z.number().int() });
+
 export const problemListItem = z.object({
   id: z.string().uuid(),
   slug: z.string(),
@@ -107,7 +109,7 @@ export const solutionOut = z.object({
   helpfulCount: z.number().int(),
   createdAt: z.date(),
   updatedAt: z.date(),
-  author: person,
+  author: solutionAuthor,
   viewerConfirmed: z.enum(["worked", "didnt", "none"]),
   viewerHasVoted: z.boolean(),
   viewerCanEdit: z.boolean(),
