@@ -55,5 +55,20 @@ export const reviews = pgTable(
   ],
 );
 
+export const reviewImages = pgTable(
+  "review_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    sort: integer("sort").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("review_images_review_idx").on(t.reviewId)],
+);
+
 export type Review = typeof reviews.$inferSelect;
 export type NewReview = typeof reviews.$inferInsert;
+export type ReviewImage = typeof reviewImages.$inferSelect;

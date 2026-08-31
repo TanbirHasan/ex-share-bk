@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { db } from "../../db/client";
+import { badRequest } from "../../lib/errors";
 import { paginationQuery } from "../../lib/pagination";
+import { saveImage } from "../../lib/uploads";
 import {
   createReviewBody,
   listReviewsOut,
@@ -116,6 +118,51 @@ export async function reviewsRoutes(app: FastifyInstance): Promise<void> {
     "/reviews/:id/vote",
     { onRequest: app.authenticate, schema: { params: reviewParams, response: { 200: reviewOut } } },
     async (req) => svc.voteHelpful(db, req.params.id, req.authUser!.id, false),
+  );
+
+  r.post(
+    "/reviews/:id/images/upload",
+    {
+      onRequest: app.authenticate,
+      schema: { params: reviewParams, response: { 201: reviewOut } },
+    },
+    async (req, reply) => {
+      const buf = req.body as Buffer | undefined;
+      if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        throw badRequest("NO_FILE", "Send the image as the raw request body.");
+      }
+      const saved = await saveImage(buf, req.headers["content-type"]);
+      if (!saved) {
+        throw badRequest("BAD_IMAGE", "Upload a JPG, PNG, WebP or GIF within the size limit.");
+      }
+      const review = await svc.addReviewImage(
+        db,
+        req.params.id,
+        req.authUser!.id,
+        req.authUser!.role === "admin" || req.authUser!.role === "moderator",
+        saved.url,
+      );
+      return reply.status(201).send(review);
+    },
+  );
+
+  r.delete(
+    "/reviews/:id/images/:imageId",
+    {
+      onRequest: app.authenticate,
+      schema: {
+        params: reviewParams.extend({ imageId: z.string().uuid() }),
+        response: { 200: reviewOut },
+      },
+    },
+    async (req) =>
+      svc.deleteReviewImage(
+        db,
+        req.params.id,
+        req.params.imageId,
+        req.authUser!.id,
+        req.authUser!.role === "admin" || req.authUser!.role === "moderator",
+      ),
   );
 
   r.get(

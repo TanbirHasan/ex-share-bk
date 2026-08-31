@@ -21,6 +21,7 @@ import { healthRoutes } from "./modules/health/health.routes";
 import { insightsRoutes } from "./modules/insights/insights.routes";
 import { internalRoutes } from "./modules/internal/internal.routes";
 import { mergeRoutes } from "./modules/merge/merge.routes";
+import { notificationsRoutes } from "./modules/notifications/notifications.routes";
 import { pendingRoutes } from "./modules/pending/pending.routes";
 import { pricesRoutes } from "./modules/prices/prices.routes";
 import { meRoutes } from "./modules/me/me.routes";
@@ -35,6 +36,7 @@ import { searchRoutes } from "./modules/search/search.routes";
 import { serviceRoutes } from "./modules/service/service.routes";
 import { storesRoutes } from "./modules/stores/stores.routes";
 import { translateRoutes } from "./modules/translate/translate.routes";
+import { uploadsRoutes } from "./modules/uploads/uploads.routes";
 import { usersRoutes } from "./modules/users/users.routes";
 import { statsRoutes } from "./modules/stats/stats.routes";
 
@@ -50,6 +52,13 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  // Raw image bodies for the admin upload endpoint.
+  app.addContentTypeParser(
+    ["image/jpeg", "image/png", "image/webp", "image/gif"],
+    { parseAs: "buffer", bodyLimit: config.MAX_UPLOAD_BYTES },
+    (_req, body, done) => done(null, body),
+  );
 
   app.setErrorHandler((err, req, reply) => {
     const e = err as Error & { statusCode?: number; validation?: unknown; code?: string };
@@ -98,8 +107,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authPlugin);
 
   await app.register(healthRoutes);
+  await app.register(uploadsRoutes, { prefix: "/uploads" });
   await app.register(internalRoutes, { prefix: "/internal" });
   await app.register(meRoutes, { prefix: "/api/v1/me" });
+  await app.register(notificationsRoutes, { prefix: "/api/v1/me/notifications" });
   await app.register(categoriesRoutes, { prefix: "/api/v1/categories" });
   await app.register(brandsRoutes, { prefix: "/api/v1/brands" });
   await app.register(productsRoutes, { prefix: "/api/v1/products" });

@@ -1,7 +1,8 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { comments, reviews, solutions, users } from "../../db/schema";
+import { comments, problems, products, reviews, solutions, users } from "../../db/schema";
 import { badRequest, forbidden, notFound } from "../../lib/errors";
+import { notify } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
 
@@ -45,6 +46,30 @@ function shape(row: Record<string, unknown>, viewerId?: string) {
     },
     viewerCanEdit: viewerId != null && row.userId === viewerId,
   };
+}
+
+/** The author of a review/solution + where it lives, for notifications. */
+async function targetOwner(
+  db: DB,
+  type: TargetType,
+  id: string,
+): Promise<{ userId: string; href: string } | null> {
+  if (type === "review") {
+    const [row] = await db
+      .select({ userId: reviews.userId, slug: products.slug })
+      .from(reviews)
+      .innerJoin(products, eq(reviews.productId, products.id))
+      .where(eq(reviews.id, id))
+      .limit(1);
+    return row ? { userId: row.userId, href: `/products/${row.slug}` } : null;
+  }
+  const [row] = await db
+    .select({ userId: solutions.userId, slug: problems.slug })
+    .from(solutions)
+    .innerJoin(problems, eq(solutions.problemId, problems.id))
+    .where(eq(solutions.id, id))
+    .limit(1);
+  return row ? { userId: row.userId, href: `/problems/${row.slug}` } : null;
 }
 
 async function assertTarget(db: DB, type: TargetType, id: string) {
@@ -119,6 +144,18 @@ export async function createComment(
       status: "approved",
     })
     .returning({ id: comments.id });
+
+  const owner = await targetOwner(db, input.targetType, input.targetId);
+  if (owner) {
+    await notify(db, {
+      userIds: [owner.userId],
+      actorId: userId,
+      type: "comment_received",
+      target: { type: input.targetType, id: input.targetId },
+      meta: { href: owner.href, kind: input.targetType },
+    });
+  }
+
   return getCommentById(db, row!.id, userId);
 }
 

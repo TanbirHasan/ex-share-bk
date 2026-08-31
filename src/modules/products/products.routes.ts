@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { db } from "../../db/client";
 import { z } from "zod";
+import { badRequest } from "../../lib/errors";
+import { saveImage } from "../../lib/uploads";
 import {
   addImageBody,
   createProductBody,
@@ -99,6 +101,29 @@ export async function productsRoutes(app: FastifyInstance): Promise<void> {
     },
     async (req, reply) =>
       reply.status(201).send(await svc.addProductImage(db, req.params.id, req.body)),
+  );
+
+  // Direct file upload: the raw image bytes are the request body, with an
+  // image/* Content-Type. Stored on disk, then registered like any image.
+  r.post(
+    "/:id/images/upload",
+    {
+      onRequest: app.requireRole("admin"),
+      schema: { params: productParams, response: { 201: productImageOut } },
+    },
+    async (req, reply) => {
+      const buf = req.body as Buffer | undefined;
+      if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        throw badRequest("NO_FILE", "Send the image as the raw request body.");
+      }
+      const saved = await saveImage(buf, req.headers["content-type"]);
+      if (!saved) {
+        throw badRequest("BAD_IMAGE", "Upload a JPG, PNG, WebP or GIF within the size limit.");
+      }
+      return reply
+        .status(201)
+        .send(await svc.addProductImage(db, req.params.id, { url: saved.url }));
+    },
   );
 
   r.delete(

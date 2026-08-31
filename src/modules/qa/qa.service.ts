@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { answers, products, questions, users } from "../../db/schema";
 import { badRequest, forbidden, notFound } from "../../lib/errors";
+import { notify } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
 
@@ -226,8 +227,15 @@ export async function createAnswer(
   body: string,
 ) {
   const [q] = await db
-    .select({ id: questions.id, status: questions.status })
+    .select({
+      id: questions.id,
+      status: questions.status,
+      askerId: questions.userId,
+      productSlug: products.slug,
+      productName: products.name,
+    })
     .from(questions)
+    .innerJoin(products, eq(questions.productId, products.id))
     .where(eq(questions.id, questionId))
     .limit(1);
   if (!q) throw notFound("QUESTION_NOT_FOUND", "Question not found");
@@ -235,6 +243,15 @@ export async function createAnswer(
 
   await db.insert(answers).values({ questionId, userId, body, status: "approved" });
   await recomputeAnswerCount(db, questionId);
+
+  await notify(db, {
+    userIds: [q.askerId],
+    actorId: userId,
+    type: "answer_received",
+    target: { type: "product", id: questionId },
+    meta: { href: `/products/${q.productSlug}`, title: q.productName },
+  });
+
   return getQuestion(db, questionId, userId);
 }
 

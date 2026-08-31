@@ -1,9 +1,9 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { db } from "../../db/client";
-import { follows, problems, products } from "../../db/schema";
+import { follows, priceAlerts, pricePoints, problems, products } from "../../db/schema";
 import { notFound } from "../../lib/errors";
 
 const followBody = z.object({
@@ -158,6 +158,48 @@ export async function followsRoutes(app: FastifyInstance): Promise<void> {
         products: prodRows.map((x) => ({ ...x, ratingAvg: Number(x.ratingAvg) })),
         problems: probRows,
       };
+    },
+  );
+
+  r.get(
+    "/me/price-alerts",
+    {
+      onRequest: app.authenticate,
+      schema: {
+        response: {
+          200: z.array(
+            z.object({
+              productId: z.string().uuid(),
+              slug: z.string(),
+              name: z.string(),
+              primaryImage: z.string().nullable(),
+              targetPrice: z.number().int(),
+              lowestSeen: z.number().int().nullable(),
+              createdAt: z.coerce.date(),
+            }),
+          ),
+        },
+      },
+    },
+    async (req) => {
+      const rows = await db
+        .select({
+          productId: priceAlerts.productId,
+          slug: products.slug,
+          name: products.name,
+          primaryImage: products.primaryImage,
+          targetPrice: priceAlerts.targetPrice,
+          createdAt: priceAlerts.createdAt,
+          lowestSeen: sql<number | null>`(
+            select min(${pricePoints.price}) from ${pricePoints}
+            where ${pricePoints.productId} = ${priceAlerts.productId}
+          )`,
+        })
+        .from(priceAlerts)
+        .innerJoin(products, eq(priceAlerts.productId, products.id))
+        .where(eq(priceAlerts.userId, req.authUser!.id))
+        .orderBy(desc(priceAlerts.createdAt));
+      return rows;
     },
   );
 }

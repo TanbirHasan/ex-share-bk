@@ -13,9 +13,17 @@ const schema = z.object({
   // Unset = the "Translate" feature is disabled and the API returns 503.
   TRANSLATE_ENDPOINT: z.string().url().optional(),
   TRANSLATE_API_KEY: z.string().optional(),
+  // Where uploaded images are stored on disk, and the base URL they're served
+  // from. In prod point PUBLIC_BASE_URL at the API's public origin.
+  UPLOAD_DIR: z.string().default("uploads"),
+  PUBLIC_BASE_URL: z.string().url().optional(),
+  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(6 * 1024 * 1024),
 });
 
-export type Config = z.infer<typeof schema> & { corsOrigins: string[] };
+export type Config = z.infer<typeof schema> & {
+  corsOrigins: string[];
+  publicBaseUrl: string;
+};
 
 function load(): Config {
   const parsed = schema.safeParse(process.env);
@@ -30,6 +38,8 @@ function load(): Config {
   return {
     ...parsed.data,
     corsOrigins: parsed.data.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean),
+    publicBaseUrl:
+      parsed.data.PUBLIC_BASE_URL ?? `http://localhost:${parsed.data.PORT}`,
   };
 }
 

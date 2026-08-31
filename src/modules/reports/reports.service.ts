@@ -10,6 +10,7 @@ import {
   users,
 } from "../../db/schema";
 import { badRequest, notFound } from "../../lib/errors";
+import { notify } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { recomputeProductAggregates } from "../reviews/reviews.service";
 import type { CreateReportInput } from "./reports.schema";
@@ -298,6 +299,40 @@ export async function resolveReport(
         .where(eq(reviews.id, report.targetId))
         .limit(1);
       if (row) await recomputeProductAggregates(db, row.productId);
+    }
+
+    if (resolution === "remove_content") {
+      let ownerId: string | null = null;
+      if (type === "review") {
+        const [row] = await db
+          .select({ userId: reviews.userId })
+          .from(reviews)
+          .where(eq(reviews.id, report.targetId))
+          .limit(1);
+        ownerId = row?.userId ?? null;
+      } else if (type === "solution") {
+        const [row] = await db
+          .select({ userId: solutions.userId })
+          .from(solutions)
+          .where(eq(solutions.id, report.targetId))
+          .limit(1);
+        ownerId = row?.userId ?? null;
+      } else {
+        const [row] = await db
+          .select({ userId: problems.createdBy })
+          .from(problems)
+          .where(eq(problems.id, report.targetId))
+          .limit(1);
+        ownerId = row?.userId ?? null;
+      }
+      if (ownerId) {
+        await notify(db, {
+          userIds: [ownerId],
+          type: "content_removed",
+          target: { type, id: report.targetId },
+          meta: { kind: type, href: `/dashboard/${type}s` },
+        });
+      }
     }
   }
 

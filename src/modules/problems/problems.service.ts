@@ -11,6 +11,7 @@ import {
 } from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
+import { followerIds, notify, notifyOnce } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
 import { slugify, slugSuffix } from "../../lib/slug";
@@ -96,10 +97,33 @@ export async function setProblemModeration(
     .update(problems)
     .set({ status, updatedAt: new Date() })
     .where(eq(problems.id, id))
-    .returning({ createdBy: problems.createdBy });
+    .returning({
+      createdBy: problems.createdBy,
+      productId: problems.productId,
+      slug: problems.slug,
+      title: problems.title,
+    });
   if (!row) throw notFound("PROBLEM_NOT_FOUND", "Problem not found");
   if (row.createdBy) {
     await db.transaction((tx) => recomputeUserProblemCount(tx, row.createdBy!));
+  }
+
+  const href = `/problems/${row.slug}`;
+  if (row.createdBy) {
+    await notify(db, {
+      userIds: [row.createdBy],
+      type: status === "approved" ? "content_approved" : "content_rejected",
+      target: { type: "problem", id },
+      meta: { href, kind: "problem" },
+    });
+  }
+  if (status === "approved") {
+    await notify(db, {
+      userIds: await followerIds(db, "product", row.productId, row.createdBy),
+      type: "followed_new_problem",
+      target: { type: "product", id: row.productId },
+      meta: { href, title: row.title },
+    });
   }
 }
 
@@ -113,10 +137,32 @@ export async function setSolutionModeration(
     .update(solutions)
     .set({ status, updatedAt: new Date() })
     .where(eq(solutions.id, id))
-    .returning({ userId: solutions.userId });
+    .returning({ userId: solutions.userId, problemId: solutions.problemId });
   if (!row) throw notFound("SOLUTION_NOT_FOUND", "Solution not found");
   await db.transaction((tx) => recomputeUserSolutionCount(tx, row.userId));
   await recomputeUserHelpfulReceived(db, row.userId);
+
+  const [prob] = await db
+    .select({ slug: problems.slug, title: problems.title })
+    .from(problems)
+    .where(eq(problems.id, row.problemId))
+    .limit(1);
+  const href = prob ? `/problems/${prob.slug}` : "/dashboard/solutions";
+
+  await notify(db, {
+    userIds: [row.userId],
+    type: status === "approved" ? "content_approved" : "content_rejected",
+    target: { type: "solution", id },
+    meta: { href, kind: "solution" },
+  });
+  if (status === "approved" && prob) {
+    await notify(db, {
+      userIds: await followerIds(db, "problem", row.problemId, row.userId),
+      type: "followed_new_solution",
+      target: { type: "problem", id: row.problemId },
+      meta: { href, title: prob.title },
+    });
+  }
 }
 
 // --- solutions read -----------------------------------------------------------
@@ -420,6 +466,16 @@ export async function createProblem(
     return problem!;
   });
 
+  if (gate.status === "approved") {
+    await notify(db, {
+      userIds: await followerIds(db, "product", productId, userId),
+      actorId: userId,
+      type: "followed_new_problem",
+      target: { type: "product", id: productId },
+      meta: { href: `/problems/${created.slug}`, title: input.title },
+    });
+  }
+
   return getProblemBySlug(db, created.slug, userId);
 }
 
@@ -476,7 +532,7 @@ export async function createSolution(
   input: CreateSolutionInput,
 ) {
   const [problem] = await db
-    .select({ id: problems.id, slug: problems.slug })
+    .select({ id: problems.id, slug: problems.slug, title: problems.title })
     .from(problems)
     .where(eq(problems.id, problemId))
     .limit(1);
@@ -494,6 +550,16 @@ export async function createSolution(
     });
     await recomputeUserSolutionCount(tx, userId);
   });
+
+  if (status === "approved") {
+    await notify(db, {
+      userIds: await followerIds(db, "problem", problemId, userId),
+      actorId: userId,
+      type: "followed_new_solution",
+      target: { type: "problem", id: problemId },
+      meta: { href: `/problems/${problem.slug}`, title: problem.title },
+    });
+  }
 
   return getProblemBySlug(db, problem.slug, userId);
 }
@@ -571,6 +637,17 @@ export async function confirmSolution(
   });
 
   await recomputeUserHelpfulReceived(db, s.ownerId);
+
+  if (worked === true) {
+    await notifyOnce(db, {
+      userIds: [s.ownerId],
+      actorId: userId,
+      type: "solution_worked",
+      target: { type: "solution", id: solutionId },
+      meta: { href: `/problems/${s.slug}`, kind: "solution" },
+    });
+  }
+
   return getProblemBySlug(db, s.slug, userId);
 }
 
@@ -604,6 +681,17 @@ export async function voteSolution(
   });
 
   await recomputeUserHelpfulReceived(db, s.ownerId);
+
+  if (on) {
+    await notifyOnce(db, {
+      userIds: [s.ownerId],
+      actorId: userId,
+      type: "helpful_vote",
+      target: { type: "solution", id: solutionId },
+      meta: { href: `/problems/${s.slug}`, kind: "solution" },
+    });
+  }
+
   return getProblemBySlug(db, s.slug, userId);
 }
 

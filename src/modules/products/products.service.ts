@@ -3,6 +3,7 @@ import type { DB } from "../../db/client";
 import { brands, categories, productImages, products } from "../../db/schema";
 import { badRequest, conflict, notFound } from "../../lib/errors";
 import { paginated, type PageParams } from "../../lib/pagination";
+import { deleteImageByUrl } from "../../lib/uploads";
 import type {
   CreateProductInput,
   ListProductsQuery,
@@ -232,4 +233,6 @@ export async function deleteProductImage(db: DB, productId: string, imageId: str
       .set({ primaryImage: next?.url ?? null, updatedAt: new Date() })
       .where(eq(products.id, productId));
   }
+
+  await deleteImageByUrl(deleted.url);
 }

@@ -1,11 +1,23 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
-import { pricePoints, products, reviews, solutions, stores, users, votes } from "../../db/schema";
+import {
+  pricePoints,
+  reviewImages,
+  reviews,
+  products,
+  solutions,
+  stores,
+  users,
+  votes,
+} from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
-import { conflict, forbidden, notFound } from "../../lib/errors";
+import { badRequest, conflict, forbidden, notFound } from "../../lib/errors";
+import { followerIds, notify, notifyOnce } from "../../lib/notify";
+import { maybeNotifyPriceDrop } from "../../lib/price-alerts";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
 import { resolveStore } from "../../lib/stores";
+import { deleteImageByUrl } from "../../lib/uploads";
 import type {
   CreateReviewInput,
   ListReviewsQuery,
@@ -122,6 +134,29 @@ export async function setReviewModeration(
     await recomputeUserCount(tx, row.userId);
   });
   await recomputeUserHelpfulReceived(db, row.userId);
+
+  const [prod] = await db
+    .select({ slug: products.slug, name: products.name })
+    .from(products)
+    .where(eq(products.id, row.productId))
+    .limit(1);
+  const href = prod ? `/products/${prod.slug}` : "/dashboard/reviews";
+
+  await notify(db, {
+    userIds: [row.userId],
+    type: status === "approved" ? "content_approved" : "content_rejected",
+    target: { type: "review", id },
+    meta: { href, kind: "review" },
+  });
+
+  if (status === "approved" && prod) {
+    await notify(db, {
+      userIds: await followerIds(db, "product", row.productId, row.userId),
+      type: "followed_new_review",
+      target: { type: "product", id: row.productId },
+      meta: { href, title: prod.name },
+    });
+  }
 }
 
 async function recomputeHelpful(tx: Tx, reviewId: string) {
@@ -163,7 +198,33 @@ const baseSelect = {
   authorHelpful: users.helpfulReceived,
 };
 
-function shape(row: Record<string, unknown>, votedIds: Set<string>, viewerId?: string) {
+type ReviewImg = { id: string; url: string };
+
+async function loadReviewImages(
+  db: DB,
+  reviewIds: string[],
+): Promise<Map<string, ReviewImg[]>> {
+  const map = new Map<string, ReviewImg[]>();
+  if (reviewIds.length === 0) return map;
+  const rows = await db
+    .select({ id: reviewImages.id, reviewId: reviewImages.reviewId, url: reviewImages.url })
+    .from(reviewImages)
+    .where(inArray(reviewImages.reviewId, reviewIds))
+    .orderBy(asc(reviewImages.sort), asc(reviewImages.createdAt));
+  for (const x of rows) {
+    const arr = map.get(x.reviewId) ?? [];
+    arr.push({ id: x.id, url: x.url });
+    map.set(x.reviewId, arr);
+  }
+  return map;
+}
+
+function shape(
+  row: Record<string, unknown>,
+  votedIds: Set<string>,
+  viewerId?: string,
+  imagesByReview?: Map<string, ReviewImg[]>,
+) {
   return {
     id: row.id as string,
     productId: row.productId as string,
@@ -180,6 +241,7 @@ function shape(row: Record<string, unknown>, votedIds: Set<string>, viewerId?: s
       row.storeSlug && row.storeName
         ? { slug: row.storeSlug as string, name: row.storeName as string }
         : null,
+    images: imagesByReview?.get(row.id as string) ?? [],
     contentLang: row.contentLang as "bn" | "en",
     status: row.status as ReviewStatus,
     helpfulCount: row.helpfulCount as number,
@@ -226,7 +288,8 @@ export async function getReviewById(db: DB, id: string, viewerId?: string) {
     .limit(1);
   if (!row) throw notFound("REVIEW_NOT_FOUND", "Review not found");
   const voted = await votedSet(db, viewerId, [row.id as string]);
-  return shape(row as Record<string, unknown>, voted, viewerId);
+  const imgs = await loadReviewImages(db, [row.id as string]);
+  return shape(row as Record<string, unknown>, voted, viewerId, imgs);
 }
 
 export async function listReviews(
@@ -259,13 +322,13 @@ export async function listReviews(
     db.select({ n: sql<number>`count(*)::int` }).from(reviews).where(where),
   ]);
 
-  const voted = await votedSet(
-    db,
-    viewerId,
-    rows.map((r) => r.id as string),
-  );
+  const ids = rows.map((r) => r.id as string);
+  const [voted, imgs] = await Promise.all([
+    votedSet(db, viewerId, ids),
+    loadReviewImages(db, ids),
+  ]);
   return paginated(
-    rows.map((r) => shape(r as Record<string, unknown>, voted, viewerId)),
+    rows.map((r) => shape(r as Record<string, unknown>, voted, viewerId, imgs)),
     countRow?.n ?? 0,
     page,
   );
@@ -281,7 +344,8 @@ export async function getMyReview(db: DB, productId: string, userId: string) {
     .limit(1);
   if (!row) return null;
   const voted = await votedSet(db, userId, [row.id as string]);
-  return shape(row as Record<string, unknown>, voted, userId);
+  const imgs = await loadReviewImages(db, [row.id as string]);
+  return shape(row as Record<string, unknown>, voted, userId, imgs);
 }
 
 export async function listMyReviews(db: DB, userId: string, page: PageParams) {
@@ -307,8 +371,12 @@ export async function listMyReviews(db: DB, userId: string, page: PageParams) {
       .where(eq(reviews.userId, userId)),
   ]);
 
+  const imgs = await loadReviewImages(
+    db,
+    rows.map((r) => r.id as string),
+  );
   const data = rows.map((r) => ({
-    ...shape(r as Record<string, unknown>, new Set<string>(), userId),
+    ...shape(r as Record<string, unknown>, new Set<string>(), userId, imgs),
     product: {
       id: r.productId as string,
       slug: r.productSlug as string,
@@ -328,7 +396,7 @@ export async function createReview(
   input: CreateReviewInput,
 ) {
   const [prod] = await db
-    .select({ id: products.id })
+    .select({ id: products.id, slug: products.slug, name: products.name })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
@@ -384,6 +452,19 @@ export async function createReview(
     await recomputeUserCount(tx, userId);
     return row!;
   });
+
+  if (status === "approved") {
+    await notify(db, {
+      userIds: await followerIds(db, "product", productId, userId),
+      actorId: userId,
+      type: "followed_new_review",
+      target: { type: "product", id: productId },
+      meta: { href: `/products/${prod.slug}`, title: prod.name },
+    });
+  }
+  if (typeof input.purchasePrice === "number" && input.purchasePrice > 0) {
+    await maybeNotifyPriceDrop(db, productId, input.purchasePrice);
+  }
 
   return getReviewById(db, created.id, userId);
 }
@@ -450,10 +531,65 @@ export async function deleteReview(
   });
 }
 
-export async function voteHelpful(db: DB, reviewId: string, userId: string, on: boolean) {
+const MAX_REVIEW_IMAGES = 4;
+
+export async function addReviewImage(
+  db: DB,
+  reviewId: string,
+  userId: string,
+  isPrivileged: boolean,
+  url: string,
+) {
   const [review] = await db
     .select({ id: reviews.id, userId: reviews.userId })
     .from(reviews)
+    .where(eq(reviews.id, reviewId))
+    .limit(1);
+  if (!review) throw notFound("REVIEW_NOT_FOUND", "Review not found");
+  if (review.userId !== userId && !isPrivileged) throw forbidden();
+
+  const countRows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(reviewImages)
+    .where(eq(reviewImages.reviewId, reviewId));
+  const n = countRows[0]?.n ?? 0;
+  if (n >= MAX_REVIEW_IMAGES) {
+    await deleteImageByUrl(url);
+    throw badRequest("TOO_MANY_IMAGES", `Up to ${MAX_REVIEW_IMAGES} photos per review.`);
+  }
+
+  await db.insert(reviewImages).values({ reviewId, url, sort: n });
+  return getReviewById(db, reviewId, userId);
+}
+
+export async function deleteReviewImage(
+  db: DB,
+  reviewId: string,
+  imageId: string,
+  userId: string,
+  isPrivileged: boolean,
+) {
+  const [review] = await db
+    .select({ userId: reviews.userId })
+    .from(reviews)
+    .where(eq(reviews.id, reviewId))
+    .limit(1);
+  if (!review) throw notFound("REVIEW_NOT_FOUND", "Review not found");
+  if (review.userId !== userId && !isPrivileged) throw forbidden();
+
+  const [deleted] = await db
+    .delete(reviewImages)
+    .where(and(eq(reviewImages.id, imageId), eq(reviewImages.reviewId, reviewId)))
+    .returning({ url: reviewImages.url });
+  if (deleted) await deleteImageByUrl(deleted.url);
+  return getReviewById(db, reviewId, userId);
+}
+
+export async function voteHelpful(db: DB, reviewId: string, userId: string, on: boolean) {
+  const [review] = await db
+    .select({ id: reviews.id, userId: reviews.userId, productSlug: products.slug })
+    .from(reviews)
+    .innerJoin(products, eq(reviews.productId, products.id))
     .where(eq(reviews.id, reviewId))
     .limit(1);
   if (!review) throw notFound("REVIEW_NOT_FOUND", "Review not found");
@@ -479,6 +615,16 @@ export async function voteHelpful(db: DB, reviewId: string, userId: string, on: 
   });
 
   await recomputeUserHelpfulReceived(db, review.userId);
+
+  if (on) {
+    await notifyOnce(db, {
+      userIds: [review.userId],
+      actorId: userId,
+      type: "helpful_vote",
+      target: { type: "review", id: reviewId },
+      meta: { href: `/products/${review.productSlug}`, kind: "review" },
+    });
+  }
 
   return getReviewById(db, reviewId, userId);
 }

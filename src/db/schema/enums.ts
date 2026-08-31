@@ -50,6 +50,20 @@ export const followTargetType = pgEnum("follow_target_type", ["product", "proble
 
 export const pricePointSource = pgEnum("price_point_source", ["review", "manual"]);
 
+export const notificationType = pgEnum("notification_type", [
+  "answer_received",
+  "comment_received",
+  "helpful_vote",
+  "solution_worked",
+  "content_approved",
+  "content_rejected",
+  "content_removed",
+  "followed_new_review",
+  "followed_new_problem",
+  "followed_new_solution",
+  "price_drop",
+]);
+
 export const reportTargetType = pgEnum("report_target_type", [
   "review",
   "problem",

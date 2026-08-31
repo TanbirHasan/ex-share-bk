@@ -50,6 +50,20 @@
       "when": 1788172361238,
       "tag": "0006_huge_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788182073308,
+      "tag": "0007_wild_infant_terrible",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788185553707,
+      "tag": "0008_mysterious_bloodaxe",
+      "breakpoints": true
     }
   ]
 }
