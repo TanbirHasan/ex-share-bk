@@ -8,6 +8,7 @@ import { config, isDev } from "./config";
 import { AppError } from "./lib/errors";
 import authPlugin from "./plugins/auth";
 import securityPlugin from "./plugins/security";
+import { activityRoutes } from "./modules/activity/activity.routes";
 import { brandsRoutes } from "./modules/brands/brands.routes";
 import { categoriesRoutes } from "./modules/categories/categories.routes";
 import { qaRoutes } from "./modules/qa/qa.routes";
@@ -24,6 +25,7 @@ import { reviewsRoutes } from "./modules/reviews/reviews.routes";
 import { savedRoutes } from "./modules/saved/saved.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { serviceRoutes } from "./modules/service/service.routes";
+import { translateRoutes } from "./modules/translate/translate.routes";
 import { usersRoutes } from "./modules/users/users.routes";
 import { statsRoutes } from "./modules/stats/stats.routes";
 
@@ -95,6 +97,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(searchRoutes, { prefix: "/api/v1/search" });
   await app.register(compareRoutes, { prefix: "/api/v1/compare" });
   await app.register(statsRoutes, { prefix: "/api/v1/stats" });
+  await app.register(activityRoutes, { prefix: "/api/v1/activity" });
   await app.register(recommendRoutes, { prefix: "/api/v1/recommend" });
   await app.register(usersRoutes, { prefix: "/api/v1/users" });
   await app.register(reviewsRoutes, { prefix: "/api/v1" });
@@ -104,6 +107,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(reportsRoutes, { prefix: "/api/v1" });
   await app.register(commentsRoutes, { prefix: "/api/v1" });
   await app.register(qaRoutes, { prefix: "/api/v1" });
+  await app.register(translateRoutes, { prefix: "/api/v1/translate" });
 
   return app;
 }

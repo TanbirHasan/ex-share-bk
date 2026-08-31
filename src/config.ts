@@ -9,6 +9,10 @@ const schema = z.object({
   INTERNAL_API_SECRET: z.string().min(16, "INTERNAL_API_SECRET must be at least 16 chars"),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+  // Optional LibreTranslate-compatible endpoint for on-demand content translation.
+  // Unset = the "Translate" feature is disabled and the API returns 503.
+  TRANSLATE_ENDPOINT: z.string().url().optional(),
+  TRANSLATE_API_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema> & { corsOrigins: string[] };

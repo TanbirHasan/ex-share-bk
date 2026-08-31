@@ -121,6 +121,7 @@ export const problemDetailOut = z.object({
   category: problemCategoryEnum,
   title: z.string(),
   description: z.string(),
+  contentLang: z.enum(["bn", "en"]),
   reportCount: z.number().int(),
   createdAt: z.date(),
   product: productRef,
