@@ -36,7 +36,6 @@ import { searchRoutes } from "./modules/search/search.routes";
 import { serviceRoutes } from "./modules/service/service.routes";
 import { storesRoutes } from "./modules/stores/stores.routes";
 import { translateRoutes } from "./modules/translate/translate.routes";
-import { uploadsRoutes } from "./modules/uploads/uploads.routes";
 import { usersRoutes } from "./modules/users/users.routes";
 import { statsRoutes } from "./modules/stats/stats.routes";
 
@@ -107,7 +106,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authPlugin);
 
   await app.register(healthRoutes);
-  await app.register(uploadsRoutes, { prefix: "/uploads" });
   await app.register(internalRoutes, { prefix: "/internal" });
   await app.register(meRoutes, { prefix: "/api/v1/me" });
   await app.register(notificationsRoutes, { prefix: "/api/v1/me/notifications" });

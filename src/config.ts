@@ -13,16 +13,17 @@ const schema = z.object({
   // Unset = the "Translate" feature is disabled and the API returns 503.
   TRANSLATE_ENDPOINT: z.string().url().optional(),
   TRANSLATE_API_KEY: z.string().optional(),
-  // Where uploaded images are stored on disk, and the base URL they're served
-  // from. In prod point PUBLIC_BASE_URL at the API's public origin.
-  UPLOAD_DIR: z.string().default("uploads"),
-  PUBLIC_BASE_URL: z.string().url().optional(),
+  // Image uploads (product images, review photos) go to Cloudinary — the
+  // free tier of most PaaS hosts (Render included) has an ephemeral
+  // filesystem, so local-disk storage would lose files on every deploy.
+  CLOUDINARY_CLOUD_NAME: z.string().min(1, "CLOUDINARY_CLOUD_NAME is required"),
+  CLOUDINARY_API_KEY: z.string().min(1, "CLOUDINARY_API_KEY is required"),
+  CLOUDINARY_API_SECRET: z.string().min(1, "CLOUDINARY_API_SECRET is required"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(6 * 1024 * 1024),
 });
 
 export type Config = z.infer<typeof schema> & {
   corsOrigins: string[];
-  publicBaseUrl: string;
 };
 
 function load(): Config {
@@ -38,8 +39,6 @@ function load(): Config {
   return {
     ...parsed.data,
     corsOrigins: parsed.data.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean),
-    publicBaseUrl:
-      parsed.data.PUBLIC_BASE_URL ?? `http://localhost:${parsed.data.PORT}`,
   };
 }
 
