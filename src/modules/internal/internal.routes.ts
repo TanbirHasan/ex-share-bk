@@ -31,6 +31,13 @@ const magicConsumeBody = z.object({
   token: z.string().min(10).max(200),
 });
 
+// Magic-link sign-in is OFF for now: Resend's free sandbox sender only
+// delivers to our own account email, so real users can't receive the link.
+// Re-enable once a domain is purchased + verified in Resend (update
+// RESEND_FROM too). Matching flag in frontend/app/login/page.tsx and
+// frontend/app/api/auth/magic-link/route.ts.
+const MAGIC_LINK_ENABLED = false;
+
 function toUserResponse(u: {
   id: string;
   email: string;
@@ -61,22 +68,24 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     async (req) => toUserResponse(await upsertUserByEmail(db, req.body)),
   );
 
-  // Magic link step 1: issue a token (frontend emails the link).
-  r.post(
-    "/auth/magic-link/request",
-    {
-      schema: {
-        body: magicRequestBody,
-        response: { 200: z.object({ token: z.string(), expiresAt: z.date() }) },
+  if (MAGIC_LINK_ENABLED) {
+    // Magic link step 1: issue a token (frontend emails the link).
+    r.post(
+      "/auth/magic-link/request",
+      {
+        schema: {
+          body: magicRequestBody,
+          response: { 200: z.object({ token: z.string(), expiresAt: z.date() }) },
+        },
       },
-    },
-    async (req) => requestMagicLink(db, req.body.email),
-  );
+      async (req) => requestMagicLink(db, req.body.email),
+    );
 
-  // Magic link step 2: consume the token -> upsert user, return it.
-  r.post(
-    "/auth/magic-link/consume",
-    { schema: { body: magicConsumeBody, response: { 200: userResponse } } },
-    async (req) => toUserResponse(await consumeMagicLink(db, req.body.email, req.body.token)),
-  );
+    // Magic link step 2: consume the token -> upsert user, return it.
+    r.post(
+      "/auth/magic-link/consume",
+      { schema: { body: magicConsumeBody, response: { 200: userResponse } } },
+      async (req) => toUserResponse(await consumeMagicLink(db, req.body.email, req.body.token)),
+    );
+  }
 }
