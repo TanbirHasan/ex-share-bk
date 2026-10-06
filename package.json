@@ -14,6 +14,7 @@
     "make:admin": "tsx src/scripts/make-admin.ts",
     "seed:catalog": "tsx src/scripts/seed-catalog.ts",
     "seed:electronics": "tsx src/scripts/seed-electronics.ts",
+    "seed:pdf-import": "tsx src/scripts/seed-pdf-import.ts",
     "mint:token": "tsx src/scripts/mint-token.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
