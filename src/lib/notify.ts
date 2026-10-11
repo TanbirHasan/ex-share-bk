@@ -1,6 +1,6 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { DB } from "../db/client";
-import { follows, notifications } from "../db/schema";
+import { follows, notifications, users } from "../db/schema";
 
 type NotificationType =
   | "answer_received"
@@ -13,7 +13,9 @@ type NotificationType =
   | "followed_new_review"
   | "followed_new_problem"
   | "followed_new_solution"
-  | "price_drop";
+  | "price_drop"
+  | "pending_content_submitted"
+  | "product_request_submitted";
 
 type NotifyInput = {
   userIds: (string | null | undefined)[];
@@ -91,6 +93,15 @@ export async function notifyOnce(db: DB, input: NotifyInput): Promise<void> {
   } catch {
     // best-effort
   }
+}
+
+/** All admin/moderator user ids (minus one, usually the actor) — the audience for moderation-queue alerts. */
+export async function adminIds(db: DB, exclude?: string | null): Promise<string[]> {
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(or(eq(users.role, "admin"), eq(users.role, "moderator")), isNull(users.suspendedAt)));
+  return rows.map((r) => r.id).filter((id) => id !== exclude);
 }
 
 /** User ids following a product or problem (minus one, usually the actor). */

@@ -62,6 +62,8 @@ export const notificationType = pgEnum("notification_type", [
   "followed_new_problem",
   "followed_new_solution",
   "price_drop",
+  "pending_content_submitted",
+  "product_request_submitted",
 ]);
 
 export const reportTargetType = pgEnum("report_target_type", [

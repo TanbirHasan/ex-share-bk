@@ -17,6 +17,8 @@ const notificationType = z.enum([
   "followed_new_problem",
   "followed_new_solution",
   "price_drop",
+  "pending_content_submitted",
+  "product_request_submitted",
 ]);
 
 const notificationOut = z.object({

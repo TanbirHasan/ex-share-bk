@@ -11,7 +11,7 @@ import {
 } from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
-import { followerIds, notify, notifyOnce } from "../../lib/notify";
+import { adminIds, followerIds, notify, notifyOnce } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
 import { slugify, slugSuffix } from "../../lib/slug";
@@ -495,6 +495,14 @@ export async function createProblem(
       target: { type: "product", id: productId },
       meta: { href: `/problems/${created.slug}`, title: input.title },
     });
+  } else {
+    await notify(db, {
+      userIds: await adminIds(db, userId),
+      actorId: userId,
+      type: "pending_content_submitted",
+      target: { type: "problem", id: created.id },
+      meta: { href: "/dashboard/pending", kind: "problem", title: input.title },
+    });
   }
 
   return getProblemBySlug(db, created.slug, userId);
@@ -561,15 +569,19 @@ export async function createSolution(
 
   const { status } = await checkContentGate(db, userId);
 
-  await db.transaction(async (tx) => {
-    await tx.insert(solutions).values({
-      problemId,
-      userId,
-      body: input.body,
-      contentLang: input.contentLang ?? "en",
-      status,
-    });
+  const createdId = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(solutions)
+      .values({
+        problemId,
+        userId,
+        body: input.body,
+        contentLang: input.contentLang ?? "en",
+        status,
+      })
+      .returning({ id: solutions.id });
     await recomputeUserSolutionCount(tx, userId);
+    return row!.id;
   });
 
   if (status === "approved") {
@@ -579,6 +591,14 @@ export async function createSolution(
       type: "followed_new_solution",
       target: { type: "problem", id: problemId },
       meta: { href: `/problems/${problem.slug}`, title: problem.title },
+    });
+  } else {
+    await notify(db, {
+      userIds: await adminIds(db, userId),
+      actorId: userId,
+      type: "pending_content_submitted",
+      target: { type: "solution", id: createdId },
+      meta: { href: "/dashboard/pending", kind: "solution", title: problem.title },
     });
   }
 

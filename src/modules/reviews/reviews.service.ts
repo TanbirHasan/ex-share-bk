@@ -12,7 +12,7 @@ import {
 } from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors";
-import { followerIds, notify, notifyOnce } from "../../lib/notify";
+import { adminIds, followerIds, notify, notifyOnce } from "../../lib/notify";
 import { maybeNotifyPriceDrop } from "../../lib/price-alerts";
 import { paginated, type PageParams } from "../../lib/pagination";
 import { reputationScore } from "../../lib/reputation";
@@ -460,6 +460,14 @@ export async function createReview(
       type: "followed_new_review",
       target: { type: "product", id: productId },
       meta: { href: `/products/${prod.slug}`, title: prod.name },
+    });
+  } else {
+    await notify(db, {
+      userIds: await adminIds(db, userId),
+      actorId: userId,
+      type: "pending_content_submitted",
+      target: { type: "review", id: created.id },
+      meta: { href: "/dashboard/pending", kind: "review", title: prod.name },
     });
   }
   if (typeof input.purchasePrice === "number" && input.purchasePrice > 0) {

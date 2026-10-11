@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import type { DB } from "../../db/client";
 import { productRequests, users } from "../../db/schema";
 import { notFound } from "../../lib/errors";
+import { adminIds, notify } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 
 type Status = "open" | "added" | "rejected";
@@ -30,6 +31,14 @@ export async function createRequest(
     rawText: input.rawText,
     categoryGuess: input.categoryGuess ?? null,
   });
+
+  await notify(db, {
+    userIds: await adminIds(db, userId),
+    type: "product_request_submitted",
+    actorId: userId,
+    meta: { href: "/dashboard/requests", title: input.rawText },
+  });
+
   return { ok: true, duplicate: false };
 }
 

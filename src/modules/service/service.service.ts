@@ -3,6 +3,7 @@ import type { DB } from "../../db/client";
 import { products, serviceExperiences, users } from "../../db/schema";
 import { checkContentGate } from "../../lib/account";
 import { conflict, forbidden, notFound } from "../../lib/errors";
+import { adminIds, notify } from "../../lib/notify";
 import { paginated, type PageParams } from "../../lib/pagination";
 import type { CreateServiceInput, ListServiceQuery, UpdateServiceInput } from "./service.schema";
 
@@ -212,7 +213,7 @@ export async function createServiceExperience(
   input: CreateServiceInput,
 ) {
   const [prod] = await db
-    .select({ id: products.id })
+    .select({ id: products.id, name: products.name })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
@@ -253,6 +254,16 @@ export async function createServiceExperience(
       status,
     })
     .returning({ id: serviceExperiences.id });
+
+  if (status === "pending") {
+    await notify(db, {
+      userIds: await adminIds(db, userId),
+      actorId: userId,
+      type: "pending_content_submitted",
+      target: { type: "service", id: row!.id },
+      meta: { href: "/dashboard/pending", kind: "service", title: prod.name },
+    });
+  }
 
   return getServiceById(db, row!.id, userId);
 }
