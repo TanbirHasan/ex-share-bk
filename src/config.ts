@@ -20,6 +20,11 @@ const schema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1, "CLOUDINARY_API_KEY is required"),
   CLOUDINARY_API_SECRET: z.string().min(1, "CLOUDINARY_API_SECRET is required"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(6 * 1024 * 1024),
+  // Admin "AI assist" on the New Product form: Tavily searches the open web,
+  // Gemini turns the results into structured product fields. Both optional —
+  // unset = the feature returns 503, same pattern as TRANSLATE_ENDPOINT.
+  TAVILY_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema> & {

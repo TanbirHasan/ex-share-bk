@@ -10,6 +10,7 @@ import authPlugin from "./plugins/auth";
 import securityPlugin from "./plugins/security";
 import { activityRoutes } from "./modules/activity/activity.routes";
 import { adminUsersRoutes } from "./modules/admin-users/admin-users.routes";
+import { aiAssistRoutes } from "./modules/ai-assist/ai-assist.routes";
 import { auditRoutes } from "./modules/audit/audit.routes";
 import { brandsRoutes } from "./modules/brands/brands.routes";
 import { categoriesRoutes } from "./modules/categories/categories.routes";
@@ -135,6 +136,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(qaRoutes, { prefix: "/api/v1" });
   await app.register(followsRoutes, { prefix: "/api/v1" });
   await app.register(translateRoutes, { prefix: "/api/v1/translate" });
+  await app.register(aiAssistRoutes, { prefix: "/api/v1/admin/ai-assist" });
 
   return app;
 }
