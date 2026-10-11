@@ -19,6 +19,7 @@ const notificationType = z.enum([
   "price_drop",
   "pending_content_submitted",
   "product_request_submitted",
+  "product_request_fulfilled",
 ]);
 
 const notificationOut = z.object({

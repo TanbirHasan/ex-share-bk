@@ -8,7 +8,13 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { contentLang, productRequestStatus, translationTargetType } from "./enums";
+import {
+  contentLang,
+  productRequestContentType,
+  productRequestStatus,
+  translationTargetType,
+} from "./enums";
+import { products } from "./catalog";
 import { users } from "./users";
 
 // Users asking for a product we don't have yet -> admin "missing products" queue.
@@ -18,6 +24,12 @@ export const productRequests = pgTable("product_requests", {
   rawText: text("raw_text").notNull(),
   categoryGuess: text("category_guess"),
   status: productRequestStatus("status").notNull().default("open"),
+  // Set once an admin fulfills the request (new product or an existing match).
+  productId: uuid("product_id").references(() => products.id, { onDelete: "set null" }),
+  // Optional review/problem/service draft the requester attached — converted
+  // into a real row (credited to them, force-approved) on fulfillment.
+  contentType: productRequestContentType("content_type"),
+  contentPayload: jsonb("content_payload").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -15,7 +15,8 @@ type NotificationType =
   | "followed_new_solution"
   | "price_drop"
   | "pending_content_submitted"
-  | "product_request_submitted";
+  | "product_request_submitted"
+  | "product_request_fulfilled";
 
 type NotifyInput = {
   userIds: (string | null | undefined)[];

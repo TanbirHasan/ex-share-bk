@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../../db/client";
 import {
   createRequestBody,
+  fulfillRequestBody,
   listRequestsOut,
   listRequestsQuery,
   requestIdParams,
@@ -67,5 +68,21 @@ export async function requestsRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (req) => svc.updateRequest(db, req.params.id, req.body.status),
+  );
+
+  // Fulfill: link the request to a product (new or existing) and publish
+  // any attached draft. The only path to status "added".
+  r.post(
+    "/admin/product-requests/:id/fulfill",
+    {
+      onRequest: app.requireRole("admin"),
+      schema: {
+        params: requestIdParams,
+        body: fulfillRequestBody,
+        response: { 200: z.object({ ok: z.boolean() }) },
+      },
+    },
+    async (req) =>
+      svc.fulfillRequest(db, req.params.id, req.body.productId, req.authUser!.id),
   );
 }

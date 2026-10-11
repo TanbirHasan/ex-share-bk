@@ -64,6 +64,7 @@ export const notificationType = pgEnum("notification_type", [
   "price_drop",
   "pending_content_submitted",
   "product_request_submitted",
+  "product_request_fulfilled",
 ]);
 
 export const reportTargetType = pgEnum("report_target_type", [
@@ -90,4 +91,12 @@ export const productRequestStatus = pgEnum("product_request_status", [
   "open",
   "added",
   "rejected",
+]);
+
+// Type of draft content (if any) a requester attached to their product request —
+// converted into a real row once admin fulfills the request with a productId.
+export const productRequestContentType = pgEnum("product_request_content_type", [
+  "review",
+  "problem",
+  "service",
 ]);
