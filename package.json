@@ -16,6 +16,7 @@
     "seed:electronics": "tsx src/scripts/seed-electronics.ts",
     "seed:pdf-import": "tsx src/scripts/seed-pdf-import.ts",
     "set:category-images": "tsx src/scripts/set-category-images.ts",
+    "reset:catalog": "tsx src/scripts/reset-and-seed-catalog.ts",
     "mint:token": "tsx src/scripts/mint-token.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
