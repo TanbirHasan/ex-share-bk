@@ -67,6 +67,7 @@ export async function notificationsRoutes(app: FastifyInstance): Promise<void> {
             createdAt: notifications.createdAt,
             actorName: users.name,
             actorAvatar: users.avatarUrl,
+            actorRole: users.role,
           })
           .from(notifications)
           .leftJoin(users, eq(notifications.actorId, users.id))
@@ -89,9 +90,11 @@ export async function notificationsRoutes(app: FastifyInstance): Promise<void> {
           id: x.id,
           type: x.type,
           meta: x.meta,
+          // Don't expose an admin's personal (often Google) profile photo to
+          // the user they're notifying — keep attribution by name only.
           actor:
             x.actorName !== null || x.actorAvatar !== null
-              ? { name: x.actorName, avatarUrl: x.actorAvatar }
+              ? { name: x.actorName, avatarUrl: x.actorRole === "admin" ? null : x.actorAvatar }
               : null,
           readAt: x.readAt,
           createdAt: x.createdAt,

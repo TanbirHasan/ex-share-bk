@@ -12,7 +12,7 @@ export type ProductLookupResult = {
   sources: { title: string; url: string }[];
 };
 
-type TavilyResult = { title: string; url: string; content: string };
+type TavilyResult = { title: string; url: string; content: string; raw_content?: string | null };
 
 async function tavilySearch(query: string): Promise<TavilyResult[]> {
   const res = await fetch("https://api.tavily.com/search", {
@@ -20,9 +20,12 @@ async function tavilySearch(query: string): Promise<TavilyResult[]> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       api_key: config.TAVILY_API_KEY,
-      query: `${query} specifications price`,
-      search_depth: "basic",
+      query: `${query} full specifications price BDT Bangladesh`,
+      // "advanced" + raw_content pulls the actual page text instead of a short
+      // snippet — snippets alone rarely contain a full spec table or price.
+      search_depth: "advanced",
       max_results: 6,
+      include_raw_content: "text",
     }),
   });
   if (!res.ok) throw new Error(`Tavily search failed (${res.status})`);
@@ -30,6 +33,10 @@ async function tavilySearch(query: string): Promise<TavilyResult[]> {
   return data.results ?? [];
 }
 
+// Gemini's structured-output mode handles a free-form OBJECT poorly (it
+// tends to just emit {}) — an array of {key, value} pairs is a schema it can
+// actually follow, so specs go out this way and get folded back into a
+// Record<string, string> below.
 const RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -41,9 +48,21 @@ const RESPONSE_SCHEMA = {
     priceMin: { type: "NUMBER" },
     priceMax: { type: "NUMBER" },
     warrantyText: { type: "STRING" },
-    specs: { type: "OBJECT" },
+    specs: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: { key: { type: "STRING" }, value: { type: "STRING" } },
+        required: ["key", "value"],
+      },
+    },
   },
   required: ["found"],
+};
+
+type GeminiExtraction = Omit<ProductLookupResult, "sources" | "specs"> & {
+  found: boolean;
+  specs?: { key: string; value: string }[];
 };
 
 async function geminiExtract(
@@ -51,35 +70,61 @@ async function geminiExtract(
   results: TavilyResult[],
 ): Promise<Omit<ProductLookupResult, "sources"> & { found: boolean }> {
   const context = results
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${r.content.slice(0, 1500)}`)
-    .join("\n\n");
+    .map((r, i) => {
+      const body = r.raw_content && r.raw_content.length > r.content.length ? r.raw_content : r.content;
+      return `[${i + 1}] ${r.title}\n${r.url}\n${body.slice(0, 6000)}`;
+    })
+    .join("\n\n---\n\n");
 
   const prompt =
-    `You are filling in a product catalogue form for "${query}" using the search results below.\n` +
-    `Extract what you can confidently find. Prices are in Bangladeshi Taka (BDT) if the ` +
-    `source is a Bangladeshi retailer — convert other currencies to an approximate BDT ` +
-    `range only if a source gives both, otherwise omit price. "specs" should be short ` +
-    `key/value technical specs (e.g. "Capacity": "253 L"), at most 10 entries. Set ` +
-    `"found" to false and leave other fields out if the results don't clearly describe ` +
-    `one real product.\n\n${context}`;
+    `You are filling in a product catalogue form for "${query}" using the search results below ` +
+    `(these are full page contents, not just snippets — specs tables and prices are often ` +
+    `further down the page, so read the whole thing before concluding something isn't there).\n\n` +
+    `Two fields are easy to confuse — keep them strictly separate:\n` +
+    `- "specs": EVERY concrete technical spec as its own {key, value} pair — capacity/size, ` +
+    `dimensions, weight, power/wattage, material, colour options, connectivity, display, battery, ` +
+    `processor, RAM/storage, energy rating, refrigerant, voltage, and anything else that applies ` +
+    `to this kind of product. Do not cap yourself to a small number; include everything concrete ` +
+    `you find, each as its own entry (e.g. {"key": "Capacity", "value": "213 L"}, ` +
+    `{"key": "Energy rating", "value": "5 Star"}) — never as one long paragraph.\n` +
+    `- "warrantyText": ONLY the warranty/guarantee terms (how long parts/compressor/labour are ` +
+    `covered), as one short plain sentence or two. Nothing else belongs here — dimensions, power, ` +
+    `ratings etc. all belong under "specs" instead, even if the source lists them in the same table.\n\n` +
+    `Other rules:\n` +
+    `- Prices are in Bangladeshi Taka (BDT). Prefer a price stated by a Bangladeshi retailer. ` +
+    `If no BDT price appears anywhere, convert a clearly-stated price in another currency to an ` +
+    `approximate BDT range instead of omitting it — approximate is fine, admin will double-check it.\n` +
+    `- Fill in modelNo and category whenever the sources mention them, even in passing.\n` +
+    `- Only set "found" to false if the results don't clearly describe one real, identifiable product.\n\n` +
+    context;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": config.GEMINI_API_KEY!,
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
+  const call = () =>
+    fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": config.GEMINI_API_KEY!,
         },
-      }),
-    },
-  );
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: RESPONSE_SCHEMA,
+          },
+        }),
+      },
+    );
+
+  // Gemini's free tier returns a transient 503 ("high demand") often enough
+  // that a single attempt isn't reliable — a couple of short-backoff retries
+  // clear most of them.
+  let res = await call();
+  for (let attempt = 0; !res.ok && res.status === 503 && attempt < 2; attempt++) {
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+    res = await call();
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Gemini request failed (${res.status}): ${body}`);
@@ -89,7 +134,14 @@ async function geminiExtract(
   };
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini returned no content");
-  return JSON.parse(text);
+  const parsed = JSON.parse(text) as GeminiExtraction;
+
+  const specs: Record<string, string> = {};
+  for (const { key, value } of parsed.specs ?? []) {
+    if (key?.trim() && value?.trim()) specs[key.trim()] = value.trim();
+  }
+
+  return { ...parsed, specs };
 }
 
 /**
